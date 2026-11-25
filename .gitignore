@@ -1,4 +1,8 @@
+# Build output
 target/
 dist/
+
+# Local test pictures and clips (may show real meetings)
 shots/
+
 .DS_Store

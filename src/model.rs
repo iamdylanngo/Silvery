@@ -136,9 +136,14 @@ pub struct Store {
 
 impl Store {
     pub fn new(readonly: bool) -> Self {
-        let root = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(crate::APP_NAME);
+        // SILVERY_DATA_DIR points Silvery at another folder (e.g. for demos or tests).
+        let root = std::env::var_os("SILVERY_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::data_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(crate::APP_NAME)
+            });
         if !readonly {
             let _ = std::fs::create_dir_all(root.join("meetings"));
             let _ = std::fs::create_dir_all(root.join("recordings"));
