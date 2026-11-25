@@ -1,0 +1,43 @@
+# Builds Silvery on real macOS, Windows and Linux machines and keeps each program as a download.
+name: Build Silvery
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: silvery-macos
+            file: target/release/silvery
+          - os: windows-latest
+            name: silvery-windows
+            file: target/release/silvery.exe
+          - os: ubuntu-latest
+            name: silvery-linux
+            file: target/release/silvery
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux build tools (sound, window and speech engine)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev pkg-config libasound2-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxkbcommon-dev \
+            libwayland-dev libgl1-mesa-dev
+
+      - name: Build
+        run: cargo build --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.file }}
