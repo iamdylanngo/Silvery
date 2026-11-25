@@ -1,8 +1,11 @@
-# Builds Silvery on real macOS, Windows and Linux machines and keeps each program as a download.
+# Checks that Silvery builds on real macOS and Linux machines on every push, and keeps each program
+# as a download under the run's "Artifacts". (Windows is paused for now.)
+# Published downloads for people are made by release.yml when a version tag is pushed.
 name: Build Silvery
 
 on:
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
@@ -15,11 +18,11 @@ jobs:
           - os: macos-latest
             name: silvery-macos
             file: target/release/silvery
-          - os: windows-latest
-            name: silvery-windows
-            file: target/release/silvery.exe
-          - os: ubuntu-latest
-            name: silvery-linux
+          - os: ubuntu-22.04
+            name: silvery-linux-x86_64
+            file: target/release/silvery
+          - os: ubuntu-22.04-arm
+            name: silvery-linux-arm64
             file: target/release/silvery
     runs-on: ${{ matrix.os }}
     steps:

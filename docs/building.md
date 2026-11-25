@@ -53,8 +53,10 @@ Both need the usual desktop libraries, which ordinary Ubuntu desktops already ha
 hasn't been tried on Windows yet.
 
 ## Automatic builds
-`.github/workflows/build.yml` builds all three versions on GitHub's own Mac, Windows and Linux machines
-whenever this folder is pushed to a GitHub repository; the programs appear under the run's "Artifacts".
+- `.github/workflows/build.yml` builds the macOS and both Linux versions on GitHub's own machines on every
+  push. The programs appear under the run's "Artifacts". Windows is paused.
+- `.github/workflows/release.yml` makes the downloads on the **Releases** page when you push a version tag
+  such as `v0.2.0`. See [releasing.md](releasing.md).
 
 ## Where Silvery keeps things
 - macOS: `~/Library/Application Support/Silvery`

@@ -33,13 +33,26 @@ Recordings, transcripts, notes and summaries are stored only on your computer. T
 computer through Ollama, and speech-to-text runs on your computer through Whisper. The only download is
 the speech model (about 150 MB, once). Silvery has no accounts, no cloud and no analytics.
 
+## Download
+
+Get the latest version from the **[Releases page](../../releases/latest)**:
+
+| Your computer | File |
+|---|---|
+| Mac (Apple chip or Intel, macOS 11+) | `Silvery-macOS.zip` |
+| Linux PC (Intel/AMD) | `silvery-linux-x86_64.tar.gz` |
+| Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | `silvery-linux-arm64.tar.gz` |
+
+Windows is coming later. Install steps for each system are in the
+[user guide](docs/user-guide.md#installing-silvery).
+
 ## Quick start
 
 1. **Install Ollama** from [ollama.com](https://ollama.com), then download a model:
    ```sh
    ollama pull qwen3:8b        # or a smaller one, e.g. qwen3:4b
    ```
-2. **Get Silvery**: build it (below) or use a ready-made build from `dist/`.
+2. **Get Silvery** from the [Releases page](../../releases/latest), or build it yourself (below).
 3. **Open Silvery** and press **Record**. The first time:
    - macOS asks for microphone access. Choose **Allow**.
    - Silvery downloads its speech model once.
@@ -63,6 +76,7 @@ Details and requirements: **[build guide](docs/building.md)**.
 
 - [User guide](docs/user-guide.md): recording, summaries, Ask, settings, troubleshooting
 - [Build guide](docs/building.md): building for macOS, Linux and Windows
+- [Releasing](docs/releasing.md): publishing a new version on GitHub
 - [How it works](docs/how-it-works.md): architecture, data files and test options for developers
 
 ## Built with

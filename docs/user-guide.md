@@ -3,6 +3,7 @@
 Silvery records your meetings, turns speech into text on your computer and uses a local AI to
 write the notes. Nothing is sent to the internet.
 
+- [Installing Silvery](#installing-silvery)
 - [Before you start](#before-you-start)
 - [The window](#the-window)
 - [Recording a meeting](#recording-a-meeting)
@@ -14,6 +15,38 @@ write the notes. Nothing is sent to the internet.
 - [Settings](#settings)
 - [Where your meetings are kept](#where-your-meetings-are-kept)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Installing Silvery
+
+Download Silvery from the project's **Releases** page on GitHub (the **Releases** link on the right side of
+the project page, or `…/releases/latest`). Open **Assets** under the newest version and pick your file.
+
+### Mac: `Silvery-macOS.zip`
+Works on Apple-chip and Intel Macs with macOS 11 or newer.
+1. Double-click the zip. It unpacks to **Silvery.app**.
+2. Drag **Silvery.app** into your **Applications** folder.
+3. The first time, **right-click Silvery › Open › Open**. Silvery doesn't have an Apple developer
+   certificate, so a normal double-click shows "unidentified developer" the first time only.
+
+### Linux: `silvery-linux-x86_64.tar.gz` or `silvery-linux-arm64.tar.gz`
+Choose **x86_64** for ordinary Intel/AMD PCs and **arm64** for ARM computers (Ubuntu in UTM/Parallels on an
+Apple-chip Mac, Raspberry Pi 4/5). Not sure? Run `uname -m`: `x86_64` or `aarch64` (= arm64).
+Works on Ubuntu 22.04 or newer, Debian 12 or newer and similar systems.
+
+```sh
+tar xzf silvery-linux-x86_64.tar.gz      # or …-arm64
+cd silvery-linux-x86_64
+./install.sh                             # adds Silvery to your applications menu
+```
+
+If it complains about missing libraries:
+`sudo apt install libasound2t64 libxkbcommon-x11-0 libgl1` (`libasound2` on Ubuntu 22.04).
+
+### Check the download (optional)
+Each release has a `SHA256SUMS.txt`. Compare it with the result of `shasum -a 256 <file>` on Mac or
+`sha256sum <file>` on Linux.
 
 ---
 
