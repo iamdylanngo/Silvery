@@ -1073,6 +1073,20 @@ impl App {
                                 .color(AMBER),
                         );
                     }
+                    // Brief hiccups don't stop the recording; just say so quietly.
+                    let skips = r.rec.skips();
+                    if skips > 0 {
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(if skips == 1 {
+                                "A moment of audio was skipped. Recording continues.".to_string()
+                            } else {
+                                format!("{skips} brief moments of audio were skipped. Recording continues.")
+                            })
+                            .size(12.0)
+                            .color(MUTED),
+                        );
+                    }
                 } else if !elsewhere && !crate::mic::in_app_bundle() && self.mic_perm != crate::mic::Permission::Allowed {
                     ui.add_space(8.0);
                     Frame::new().fill(Color32::WHITE).stroke(Stroke::new(1.0, AMBER)).corner_radius(10).inner_margin(12).show(ui, |ui| {

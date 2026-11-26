@@ -11,30 +11,163 @@ pub struct Recorder {
     pub samples: Arc<Mutex<Vec<f32>>>,
     #[allow(dead_code)]
     pub level: Arc<AtomicU32>,
+    /// Set only when recording can't go on (the microphone was disconnected or access was removed).
     pub failed: Arc<Mutex<Option<String>>>,
     /// Name of the microphone being used.
     pub device: String,
     /// Set once any non-silent sample has arrived (all zeros usually means macOS blocks the mic).
     pub any_signal: Arc<AtomicBool>,
+    /// Brief hiccups (buffer under/overruns, route changes, reconnects) that recording survived.
+    pub skips: Arc<AtomicU32>,
     /// When recording started.
     pub started: std::time::Instant,
-    stop: Option<mpsc::Sender<()>>,
+    stop: Option<mpsc::Sender<Ctl>>,
     paused: Arc<AtomicBool>,
+}
+
+/// Messages to the microphone thread.
+enum Ctl {
+    Stop,
+    /// The stream stopped working but the microphone is still there: open it again.
+    Rebuild,
+}
+
+/// What a problem reported by the microphone means for the recording.
+#[derive(Debug, PartialEq)]
+pub enum Severity {
+    /// A brief glitch (for example a buffer under/overrun): keep recording.
+    Skip,
+    /// The stream must be reopened; the microphone itself is fine.
+    Reopen,
+    /// Recording can't continue (the microphone is gone or access was removed).
+    Stop(&'static str),
+}
+
+pub fn classify(kind: cpal::ErrorKind) -> Severity {
+    use cpal::ErrorKind as K;
+    match kind {
+        K::DeviceNotAvailable => Severity::Stop(
+            "The microphone was disconnected, so recording stopped. Everything recorded until then is kept. Press Record to continue with another microphone.",
+        ),
+        K::HostUnavailable => Severity::Stop(
+            "The computer's sound system stopped, so recording stopped. Everything recorded until then is kept.",
+        ),
+        K::PermissionDenied => Severity::Stop(
+            "Microphone access was turned off, so recording stopped. Everything recorded until then is kept.",
+        ),
+        K::StreamInvalidated => Severity::Reopen,
+        // Buffer under/overruns, audio route changes, busy moments, performance notices and
+        // anything unclassified: a fraction of a second may be lost, but recording goes on.
+        _ => Severity::Skip,
+    }
+}
+
+/// State shared between the recorder, its microphone thread and the audio callbacks.
+#[derive(Clone)]
+struct Shared {
+    samples: Arc<Mutex<Vec<f32>>>,
+    level: Arc<AtomicU32>,
+    failed: Arc<Mutex<Option<String>>>,
+    any_signal: Arc<AtomicBool>,
+    skips: Arc<AtomicU32>,
+    paused: Arc<AtomicBool>,
+    ctx: egui::Context,
+}
+
+/// Open the microphone and start the stream.
+fn open_stream(device: &cpal::Device, sh: &Shared, ctl: mpsc::Sender<Ctl>) -> Result<cpal::Stream, String> {
+    let cfg = device
+        .default_input_config()
+        .map_err(|e| format!("The microphone can't be opened: {e}"))?;
+    let channels = cfg.channels() as usize;
+    let in_rate = cfg.sample_rate() as f64;
+    let fmt = cfg.sample_format();
+    let stream_cfg: cpal::StreamConfig = cfg.config();
+    let mut rs = Resampler::new(in_rate, RATE as f64);
+
+    let s = sh.clone();
+    let mut push = move |mono: &[f32]| {
+        if s.paused.load(Ordering::Relaxed) {
+            s.level.store(0f32.to_bits(), Ordering::Relaxed);
+            return;
+        }
+        let peak = mono.iter().fold(0f32, |a, &b| a.max(b.abs()));
+        if peak > 1e-5 {
+            s.any_signal.store(true, Ordering::Relaxed);
+        }
+        let prev = f32::from_bits(s.level.load(Ordering::Relaxed));
+        s.level.store((peak.max(prev * 0.85)).to_bits(), Ordering::Relaxed);
+        let out = rs.process(mono);
+        if let Ok(mut v) = s.samples.lock() {
+            v.extend_from_slice(&out);
+        }
+        s.ctx.request_repaint();
+    };
+    let e = sh.clone();
+    let err_fn = move |err: cpal::Error| match classify(err.kind()) {
+        Severity::Skip => {
+            e.skips.fetch_add(1, Ordering::Relaxed);
+            eprintln!("microphone glitch (recording continues): {err}");
+        }
+        Severity::Reopen => {
+            eprintln!("microphone stream needs reopening: {err}");
+            let _ = ctl.send(Ctl::Rebuild);
+        }
+        Severity::Stop(msg) => {
+            if let Ok(mut f) = e.failed.lock() {
+                *f = Some(msg.to_string());
+            }
+            e.ctx.request_repaint();
+        }
+    };
+    fn to_mono<T: Copy>(data: &[T], ch: usize, conv: impl Fn(T) -> f32) -> Vec<f32> {
+        data.chunks(ch.max(1))
+            .map(|c| c.iter().map(|&x| conv(x)).sum::<f32>() / c.len() as f32)
+            .collect()
+    }
+    let stream = match fmt {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            stream_cfg,
+            move |d: &[f32], _: &_| push(&to_mono(d, channels, |x| x)),
+            err_fn,
+            None,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            stream_cfg,
+            move |d: &[i16], _: &_| push(&to_mono(d, channels, |x| x as f32 / 32768.0)),
+            err_fn,
+            None,
+        ),
+        cpal::SampleFormat::I32 => device.build_input_stream(
+            stream_cfg,
+            move |d: &[i32], _: &_| push(&to_mono(d, channels, |x| x as f32 / 2147483648.0)),
+            err_fn,
+            None,
+        ),
+        other => return Err(format!("Unsupported microphone format {other:?}")),
+    }
+    .map_err(|e| format!("The microphone can't be opened: {e}. Check {}.", crate::platform::MIC_SETTINGS))?;
+    stream.play().map_err(|e| format!("The microphone can't start: {e}"))?;
+    Ok(stream)
 }
 
 impl Recorder {
     pub fn start(ctx: egui::Context, mic: &str) -> Result<Recorder, String> {
-        let any_signal = Arc::new(AtomicBool::new(false));
+        let sh = Shared {
+            samples: Arc::new(Mutex::new(Vec::<f32>::with_capacity(RATE * 60))),
+            level: Arc::new(AtomicU32::new(0)),
+            failed: Arc::new(Mutex::new(None)),
+            any_signal: Arc::new(AtomicBool::new(false)),
+            skips: Arc::new(AtomicU32::new(0)),
+            paused: Arc::new(AtomicBool::new(false)),
+            ctx,
+        };
         let mic = mic.to_string();
-        let samples = Arc::new(Mutex::new(Vec::<f32>::with_capacity(RATE * 60)));
-        let level = Arc::new(AtomicU32::new(0));
-        let failed = Arc::new(Mutex::new(None));
-        let paused = Arc::new(AtomicBool::new(false));
-        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let (ctl_tx, ctl_rx) = mpsc::channel::<Ctl>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
-        let sig2 = any_signal.clone();
 
-        let (s2, l2, f2, p2) = (samples.clone(), level.clone(), failed.clone(), paused.clone());
+        let th = sh.clone();
+        let ctl_for_thread = ctl_tx.clone();
         std::thread::spawn(move || {
             let (device, device_name) = match crate::mic::find(&mic) {
                 Some(d) => d,
@@ -43,104 +176,62 @@ impl Recorder {
                     return;
                 }
             };
-            let cfg = match device.default_input_config() {
-                Ok(c) => c,
+            let mut stream = match open_stream(&device, &th, ctl_for_thread.clone()) {
+                Ok(s) => Some(s),
                 Err(e) => {
-                    let _ = ready_tx.send(Err(format!("The microphone can't be opened: {e}")));
+                    let _ = ready_tx.send(Err(e));
                     return;
                 }
             };
-            let channels = cfg.channels() as usize;
-            let in_rate = cfg.sample_rate() as f64;
-            let fmt = cfg.sample_format();
-            let stream_cfg: cpal::StreamConfig = cfg.config();
-            let mut rs = Resampler::new(in_rate, RATE as f64);
-
-            let ctx2 = ctx.clone();
-            let mut push = move |mono: &[f32]| {
-                if p2.load(Ordering::Relaxed) {
-                    l2.store(0f32.to_bits(), Ordering::Relaxed);
-                    return;
-                }
-                let peak = mono.iter().fold(0f32, |a, &b| a.max(b.abs()));
-                if peak > 1e-5 {
-                    sig2.store(true, Ordering::Relaxed);
-                }
-                let prev = f32::from_bits(l2.load(Ordering::Relaxed));
-                l2.store((peak.max(prev * 0.85)).to_bits(), Ordering::Relaxed);
-                let out = rs.process(mono);
-                if let Ok(mut v) = s2.lock() {
-                    v.extend_from_slice(&out);
-                }
-                ctx2.request_repaint();
-            };
-            let f3 = f2.clone();
-            let err_fn = move |e: cpal::Error| {
-                if let Ok(mut f) = f3.lock() {
-                    *f = Some(format!("Microphone stopped: {e}"));
-                }
-            };
-            fn to_mono<T: Copy>(data: &[T], ch: usize, conv: impl Fn(T) -> f32) -> Vec<f32> {
-                data.chunks(ch.max(1))
-                    .map(|c| c.iter().map(|&x| conv(x)).sum::<f32>() / c.len() as f32)
-                    .collect()
-            }
-            let stream = match fmt {
-                cpal::SampleFormat::F32 => device.build_input_stream(
-                    stream_cfg,
-                    move |d: &[f32], _: &_| push(&to_mono(d, channels, |x| x)),
-                    err_fn,
-                    None,
-                ),
-                cpal::SampleFormat::I16 => device.build_input_stream(
-                    stream_cfg,
-                    move |d: &[i16], _: &_| push(&to_mono(d, channels, |x| x as f32 / 32768.0)),
-                    err_fn,
-                    None,
-                ),
-                cpal::SampleFormat::I32 => device.build_input_stream(
-                    stream_cfg,
-                    move |d: &[i32], _: &_| push(&to_mono(d, channels, |x| x as f32 / 2147483648.0)),
-                    err_fn,
-                    None,
-                ),
-                other => {
-                    let _ = ready_tx.send(Err(format!("Unsupported microphone format {other:?}")));
-                    return;
-                }
-            };
-            let stream = match stream {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = ready_tx.send(Err(format!(
-                        "The microphone can't be opened: {e}. Check {}.", crate::platform::MIC_SETTINGS
-                    )));
-                    return;
-                }
-            };
-            if let Err(e) = stream.play() {
-                let _ = ready_tx.send(Err(format!("The microphone can't start: {e}")));
-                return;
-            }
             let _ = ready_tx.send(Ok(device_name));
-            let _ = stop_rx.recv();
+
+            // Run until stopped. If the stream needs reopening, reopen it (a few tries).
+            while let Ok(cmd) = ctl_rx.recv() {
+                match cmd {
+                    Ctl::Stop => break,
+                    Ctl::Rebuild => {
+                        drop(stream.take());
+                        for attempt in 0..5u64 {
+                            std::thread::sleep(std::time::Duration::from_millis(200 + 400 * attempt));
+                            if let Some((dev, _)) = crate::mic::find(&mic) {
+                                if let Ok(s) = open_stream(&dev, &th, ctl_for_thread.clone()) {
+                                    stream = Some(s);
+                                    break;
+                                }
+                            }
+                        }
+                        if stream.is_some() {
+                            th.skips.fetch_add(1, Ordering::Relaxed);
+                        } else if let Ok(mut f) = th.failed.lock() {
+                            *f = Some("The microphone stopped and couldn't be reopened, so recording stopped. Everything recorded until then is kept.".into());
+                            th.ctx.request_repaint();
+                        }
+                    }
+                }
+            }
             drop(stream);
         });
 
         match ready_rx.recv() {
             Ok(Ok(device)) => Ok(Recorder {
-                samples,
-                level,
-                failed,
+                samples: sh.samples,
+                level: sh.level,
+                failed: sh.failed,
                 device,
-                any_signal,
+                any_signal: sh.any_signal,
+                skips: sh.skips,
                 started: std::time::Instant::now(),
-                stop: Some(stop_tx),
-                paused,
+                stop: Some(ctl_tx),
+                paused: sh.paused,
             }),
             Ok(Err(e)) => Err(e),
             Err(_) => Err("The microphone thread stopped unexpectedly.".into()),
         }
+    }
+
+    /// How many brief hiccups the recording survived.
+    pub fn skips(&self) -> u32 {
+        self.skips.load(Ordering::Relaxed)
     }
 
     /// A recorder filled with made-up speech-like sound, for test pictures only.
@@ -160,6 +251,7 @@ impl Recorder {
             failed: Arc::new(Mutex::new(None)),
             device: "Demo".into(),
             any_signal: Arc::new(AtomicBool::new(true)),
+            skips: Arc::new(AtomicU32::new(0)),
             started: std::time::Instant::now() - std::time::Duration::from_secs(20),
             stop: None,
             paused: Arc::new(AtomicBool::new(false)),
@@ -214,7 +306,7 @@ impl Recorder {
     }
     pub fn stop(&mut self) {
         if let Some(s) = self.stop.take() {
-            let _ = s.send(());
+            let _ = s.send(Ctl::Stop);
         }
     }
 }
@@ -299,4 +391,23 @@ pub fn write_wav(path: &std::path::Path, samples: &[f32]) -> std::io::Result<()>
         f.write_all(&v.to_le_bytes())?;
     }
     f.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glitches_keep_recording_and_disconnects_stop() {
+        use cpal::ErrorKind as K;
+        // the error from the person's recording
+        assert_eq!(classify(cpal::Error::new(K::Xrun).kind()), Severity::Skip);
+        assert_eq!(classify(K::DeviceChanged), Severity::Skip);
+        assert_eq!(classify(K::DeviceBusy), Severity::Skip);
+        assert_eq!(classify(K::RealtimeDenied), Severity::Skip);
+        assert_eq!(classify(K::BackendError), Severity::Skip);
+        assert_eq!(classify(K::StreamInvalidated), Severity::Reopen);
+        assert!(matches!(classify(K::DeviceNotAvailable), Severity::Stop(_)));
+        assert!(matches!(classify(K::PermissionDenied), Severity::Stop(_)));
+    }
 }
