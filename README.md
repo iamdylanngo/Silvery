@@ -25,7 +25,7 @@
 - **Ask about the meeting**: questions like "What did we decide?" or "Write a follow-up email",
   answered only from that meeting.
 - **Find and share**: search all meetings, copy a meeting as text, or save it as a Markdown file.
-- **Runs on** macOS (Apple-chip and Intel), Linux (x86_64 and ARM) and, soon, Windows.
+- **Runs on** macOS (Apple chip and Intel), Windows (x64 and ARM) and Linux (x86_64 and ARM).
 
 ## Privacy
 
@@ -35,16 +35,19 @@ the speech model (about 150 MB, once). Silvery has no accounts, no cloud and no 
 
 ## Download
 
-Get the latest version from the **[Releases page](../../releases/latest)**:
+Get the latest version from the **[Releases page](../../releases/latest)**. Under **Assets**, pick the file for
+your computer:
 
 | Your computer | File |
 |---|---|
-| Mac (Apple chip or Intel, macOS 11+) | `Silvery-macOS.zip` |
-| Linux PC (Intel/AMD) | `silvery-linux-x86_64.tar.gz` |
-| Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | `silvery-linux-arm64.tar.gz` |
+| Mac with an Apple chip (M1 and later) | `Silvery-<version>-macOS-AppleSilicon.zip` |
+| Mac with an Intel chip | `Silvery-<version>-macOS-Intel.zip` |
+| Windows 10/11 PC (Intel/AMD) | `Silvery-<version>-Windows-x64.zip` |
+| Windows 11 on ARM (Snapdragon laptops) | `Silvery-<version>-Windows-arm64.zip` |
+| Linux PC (Intel/AMD) | `Silvery-<version>-Linux-x86_64.tar.gz` |
+| Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | `Silvery-<version>-Linux-arm64.tar.gz` |
 
-Windows is coming later. Install steps for each system are in the
-[user guide](docs/user-guide.md#installing-silvery).
+Install steps for each system are in the [user guide](docs/user-guide.md#installing-silvery).
 
 ## Quick start
 
@@ -62,15 +65,21 @@ The full walkthrough is in the **[user guide](docs/user-guide.md)**.
 
 ## Building
 
-| System | Command | Result |
-|---|---|---|
-| macOS | `./build-macos.sh` (or `arm64`, `intel`, `universal`) | `dist/Silvery.app` + zip |
-| Linux | `./build-linux.sh` (or `x86_64`, `arm64`) | `dist/silvery-linux-*` |
-| Windows | `./build-windows.sh` | *unfinished: see the build guide* |
+Each kind of computer has a release script in [`release/`](release/README.md). Each one puts a ready-to-share
+download in `dist/release/`:
 
-The Linux and Windows builds run inside Docker, so they also work from a Mac.
-Plain `cargo build --release` works on every system once the tools are installed.
-Details and requirements: **[build guide](docs/building.md)**.
+| For | Script | Runs on |
+|---|---|---|
+| Mac, Intel chip | `./release/macos-intel.sh` | any Mac |
+| Mac, Apple chip | `./release/macos-apple-silicon.sh` | any Mac |
+| Linux, Intel/AMD | `./release/linux-x86_64.sh` | Linux, or any computer with Docker |
+| Linux, ARM | `./release/linux-arm64.sh` | Linux, or any computer with Docker |
+| Windows, Intel/AMD | `.\release\windows-x64.ps1` | Windows (PowerShell) |
+| Windows, ARM | `.\release\windows-arm64.ps1` | Windows on ARM (PowerShell) |
+
+Pushing a version tag makes GitHub run all six and publish a release; see [Releasing](docs/releasing.md).
+For everyday development, plain `cargo build --release` works once the tools are installed. Details and
+requirements: **[build guide](docs/building.md)**.
 
 ## Documentation
 

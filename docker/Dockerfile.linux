@@ -1,0 +1,18 @@
+# Build machine for Silvery's Linux versions.
+# Debian 12 (bookworm, glibc 2.36): programs built here also run on Debian 12+, Ubuntu 22.10+
+# and most other current Linux systems. Choose the processor with --build-arg PLATFORM=linux/amd64|linux/arm64.
+ARG PLATFORM=linux/amd64
+FROM --platform=$PLATFORM rust:1-bookworm
+
+# Downloads are retried, because a flaky network or mirror sometimes sends a damaged package.
+RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80retries \
+    && PKGS="cmake clang libclang-dev pkg-config \
+        libasound2-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+        libxkbcommon-dev libwayland-dev libgl1-mesa-dev \
+        xvfb libgl1-mesa-dri xauth libxkbcommon-x11-0 libegl1 fonts-dejavu-core" \
+    && apt-get update \
+    && ( apt-get install -y --no-install-recommends $PKGS \
+         || ( sleep 5 && apt-get clean && apt-get update && apt-get install -y --no-install-recommends --fix-missing $PKGS ) ) \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src

@@ -103,6 +103,13 @@ pub struct App {
     mic_default: Option<String>,
     mic_test: Option<Recorder>,
     logo: egui::TextureHandle,
+    player: Option<crate::playback::Player>,
+    menu_tx: Sender<crate::menu::Action>,
+    menu_rx: Receiver<crate::menu::Action>,
+    #[cfg(target_os = "macos")]
+    native_menu: Option<crate::menu::NativeMenu>,
+    show_guide: bool,
+    last_play_seg: Option<usize>,
 }
 
 /// The Silvery logo tile (without the icon margin), for the sidebar.
@@ -129,6 +136,7 @@ impl App {
             store.save_settings(&settings);
         }
         let (tx, rx) = mpsc::channel();
+        let (menu_tx, menu_rx) = mpsc::channel::<crate::menu::Action>();
         let worker = transcribe::spawn_worker(tx.clone(), cc.egui_ctx.clone());
         let selected = meetings.first().map(|m| m.id.clone());
         let mut app = Self {
@@ -169,6 +177,13 @@ impl App {
             mic_default: None,
             mic_test: None,
             logo: load_logo(&cc.egui_ctx),
+            player: None,
+            menu_tx: menu_tx.clone(),
+            menu_rx,
+            #[cfg(target_os = "macos")]
+            native_menu: None,
+            show_guide: false,
+            last_play_seg: None,
         };
         app.refresh_mics();
         if app.shot.is_some() {
@@ -178,6 +193,17 @@ impl App {
                 "notes" => app.tab = Tab::Notes,
                 "ask" => app.tab = Tab::Ask,
                 "settings" => app.show_settings = true,
+                "playback" => {
+                    if let Some(id) = app.selected.clone() {
+                        // made-up audio as long as the example transcript, paused at 0:36
+                        let n = RATE * 100;
+                        let samples: Vec<i16> = (0..n).map(|i| ((i as f32 * 0.05).sin() * 3000.0) as i16).collect();
+                        let p = crate::playback::Player::from_samples(&id, samples);
+                        p.seek_ms(36_000);
+                        app.player = Some(p);
+                        app.tab = Tab::Transcript;
+                    }
+                }
                 "recording" => {
                     if let Some(id) = app.selected.clone() {
                         let rec = Recorder::demo();
@@ -187,6 +213,23 @@ impl App {
                     }
                 }
                 _ => {}
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let (w, h, rgba) = crate::logo_rgba();
+            let icon = muda::Icon::from_rgba(rgba, w, h).ok();
+            app.native_menu = crate::menu::NativeMenu::install(app.menu_tx.clone(), cc.egui_ctx.clone(), icon);
+        }
+        if app.shot.is_some() {
+            if std::env::var("SILVERY_VIEW").as_deref() == Ok("guide") {
+                app.show_guide = true;
+            }
+            // SILVERY_ACTIONS=new,transcript,… runs menu actions at start (for checks)
+            if let Ok(list) = std::env::var("SILVERY_ACTIONS") {
+                for a in list.split(',').filter_map(|n| crate::menu::Action::from_id(n.trim())) {
+                    let _ = app.menu_tx.send(a);
+                }
             }
         }
         app.check_ollama(&cc.egui_ctx);
@@ -286,7 +329,163 @@ impl App {
         self.touch(&id);
     }
 
+    fn save_to_downloads(&mut self, id: &str) {
+        if let Some(m) = self.meeting(id) {
+            let dir = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+            let safe: String = m
+                .title
+                .chars()
+                .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
+                .collect();
+            let path = dir.join(format!("{}.md", safe.trim()));
+            let msg = match std::fs::write(&path, m.to_markdown()) {
+                Ok(()) => format!("Saved to Downloads as \"{}.md\"", safe.trim()),
+                Err(e) => format!("Couldn't save: {e}"),
+            };
+            self.flash(msg);
+        }
+    }
+
+    /// What the menus should show right now.
+    fn menu_state(&self) -> crate::menu::State {
+        let sel = self.selected.clone().filter(|id| self.meeting(id).is_some());
+        let playing = self.player.as_ref().map(|p| p.is_playing()).unwrap_or(false);
+        crate::menu::State {
+            has_meeting: sel.is_some(),
+            recording: self.recording.is_some(),
+            paused: self.recording.as_ref().map(|r| r.rec.is_paused()).unwrap_or(false),
+            has_audio: sel.as_deref().map(|id| self.has_audio(id)).unwrap_or(false),
+            playing,
+        }
+    }
+
+    /// Do what a menu item or keyboard shortcut asked for.
+    fn run_action(&mut self, ctx: &egui::Context, a: crate::menu::Action) {
+        use crate::menu::Action as A;
+        let sel = self.selected.clone().filter(|id| self.meeting(id).is_some());
+        match a {
+            A::NewMeeting => self.new_meeting(),
+            A::CopyText => {
+                if let Some(m) = sel.as_deref().and_then(|id| self.meeting(id)) {
+                    ctx.copy_text(m.to_markdown());
+                    self.flash("Copied to clipboard");
+                }
+            }
+            A::SaveToDownloads => {
+                if let Some(id) = sel {
+                    self.save_to_downloads(&id);
+                }
+            }
+            A::Delete => self.confirm_delete = sel,
+            A::RecordStop => {
+                if self.recording.is_some() {
+                    self.stop_recording();
+                } else if let Some(id) = sel {
+                    self.start_recording(ctx, &id);
+                }
+            }
+            A::PauseRecording => {
+                if let Some(r) = &self.recording {
+                    r.rec.set_paused(!r.rec.is_paused());
+                }
+            }
+            A::PlayPause => {
+                if let Some(id) = sel {
+                    let playing = self.player.as_ref().filter(|p| p.meeting_id == id).map(|p| p.is_playing()).unwrap_or(false);
+                    if playing {
+                        if let Some(p) = &self.player {
+                            p.pause();
+                        }
+                    } else {
+                        self.play_from(ctx, &id, None);
+                    }
+                }
+            }
+            A::Summary => self.tab = Tab::Summary,
+            A::Transcript => self.tab = Tab::Transcript,
+            A::Notes => self.tab = Tab::Notes,
+            A::Ask => self.tab = Tab::Ask,
+            A::Search => ctx.memory_mut(|m| m.request_focus(egui::Id::unique("silvery-search"))),
+            A::Guide => self.show_guide = true,
+            A::Settings => {
+                self.refresh_mics();
+                self.show_settings = true;
+            }
+            A::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+        }
+    }
+
+    /// The user guide, shown inside Silvery so it works offline.
+    fn guide_window(&mut self, ctx: &egui::Context) {
+        if !self.show_guide {
+            return;
+        }
+        let mut open = true;
+        let screen = ctx.content_rect();
+        egui::Window::new("Silvery user guide")
+            .fade_in(false)
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(true)
+            .default_size([720.0, (screen.height() - 120.0).min(760.0)])
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .frame(Frame::new().fill(BG).stroke(Stroke::new(1.0, BORDER)).corner_radius(14).inner_margin(20).shadow(ctx.global_style().visuals.window_shadow))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("User guide").size(19.0).strong().color(TEXT));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("Done").clicked() {
+                            open = false;
+                        }
+                    });
+                });
+                ui.add_space(8.0);
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    markdown::show(ui, &guide_text());
+                });
+            });
+        if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.show_guide = false;
+        }
+    }
+
+    /// Whether this meeting has recorded audio that can be played back.
+    fn has_audio(&self, id: &str) -> bool {
+        if self.player.as_ref().map(|p| p.meeting_id == id).unwrap_or(false) {
+            return true;
+        }
+        self.meeting(id)
+            .map(|m| m.recordings.iter().any(|f| self.store.recordings_dir().join(f).exists()))
+            .unwrap_or(false)
+    }
+
+    /// Make sure the player holds this meeting's audio. Returns false if there is none.
+    fn ensure_player(&mut self, id: &str) -> bool {
+        if self.player.as_ref().map(|p| p.meeting_id == id).unwrap_or(false) {
+            return true;
+        }
+        self.player = None;
+        let files = self.meeting(id).map(|m| m.recordings.clone()).unwrap_or_default();
+        self.player = crate::playback::Player::load(id, &self.store.recordings_dir(), &files);
+        self.last_play_seg = None;
+        self.player.is_some()
+    }
+
+    /// Play this meeting's recording from `ms` (or from where it was, if None).
+    fn play_from(&mut self, ctx: &egui::Context, id: &str, ms: Option<i64>) {
+        if self.recording.is_some() || !self.ensure_player(id) {
+            return;
+        }
+        if let Some(p) = self.player.as_mut() {
+            if let Some(ms) = ms {
+                p.seek_ms(ms);
+            }
+            p.play(ctx);
+        }
+    }
+
     fn start_recording(&mut self, ctx: &egui::Context, id: &str) {
+        self.player = None;
         if self.recording.is_some() {
             return;
         }
@@ -548,6 +747,7 @@ impl App {
         ui.add_space(8.0);
         ui.add(
             egui::TextEdit::singleline(&mut self.search)
+                .id(egui::Id::unique("silvery-search"))
                 .hint_text("Search meetings")
                 .desired_width(w)
                 .margin(Margin::symmetric(10, 7)),
@@ -562,6 +762,7 @@ impl App {
         let today = chrono::Local::now().date_naive();
         let mut clicked: Option<String> = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
             let mut last_day = None;
             for m in &self.meetings {
                 if !q.is_empty()
@@ -582,41 +783,62 @@ impl App {
                     } else {
                         m.created.format("%A %e %B").to_string()
                     };
-                    ui.add_space(6.0);
-                    ui.label(RichText::new(label).size(11.5).color(MUTED).strong());
+                    ui.add_space(10.0);
+                    ui.label(RichText::new(label).size(11.0).color(MUTED).strong());
                     ui.add_space(2.0);
                 }
                 let selected = self.selected.as_deref() == Some(m.id.as_str());
                 let is_rec = self.recording.as_ref().map(|r| r.id == m.id).unwrap_or(false);
-                let resp = Frame::new()
-                    .fill(if selected { Color32::WHITE } else { Color32::TRANSPARENT })
-                    .stroke(if selected { Stroke::new(1.0, BORDER) } else { Stroke::NONE })
-                    .corner_radius(9)
-                    .inner_margin(Margin::symmetric(10, 8))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            if is_rec {
-                                let (d, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
-                                ui.painter().circle_filled(d.center(), 4.0, RED);
-                            }
-                            ui.add(egui::Label::new(RichText::new(&m.title).size(14.0).color(TEXT)).truncate());
-                        });
-                        let mut sub = m.created.format("%H:%M").to_string();
-                        if m.duration_ms > 0 {
-                            sub.push_str(&format!(" · {} min", (m.duration_ms / 60_000).max(1)));
-                        }
-                        ui.label(RichText::new(sub).size(12.0).color(MUTED));
-                    })
-                    .response;
-                let resp = ui.interact(resp.rect, ui.scope_id().with(&m.id), Sense::click());
-                if resp.hovered() && !selected {
-                    ui.painter().rect_filled(resp.rect, 9, Color32::from_black_alpha(8));
+
+                // One compact line per meeting: title on the left, time and length on the right.
+                let width = ui.available_width();
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 30.0), Sense::click());
+                let painter = ui.painter();
+                if selected {
+                    painter.rect(rect, 7, Color32::WHITE, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+                } else if resp.hovered() {
+                    painter.rect_filled(rect, 7, Color32::from_black_alpha(8));
                 }
+                let mut meta = m.created.format("%H:%M").to_string();
+                if m.duration_ms > 0 {
+                    let mins = (m.duration_ms / 60_000).max(1);
+                    meta.push_str(&if mins >= 60 {
+                        format!(" · {}h {:02}m", mins / 60, mins % 60)
+                    } else {
+                        format!(" · {mins}m")
+                    });
+                }
+                let meta_g = painter.layout_no_wrap(meta, egui::FontId::proportional(12.0), MUTED);
+                let right = rect.right() - 9.0;
+                painter.galley(egui::pos2(right - meta_g.size().x, rect.center().y - meta_g.size().y / 2.0), meta_g.clone(), MUTED);
+
+                let mut left = rect.left() + 9.0;
+                if is_rec {
+                    painter.circle_filled(egui::pos2(left + 4.0, rect.center().y), 4.0, RED);
+                    left += 14.0;
+                }
+                let mut job = egui::text::LayoutJob::simple_singleline(
+                    m.title.clone(),
+                    egui::FontId::proportional(14.0),
+                    if selected { TEXT } else { BODY },
+                );
+                job.wrap = egui::text::TextWrapping {
+                    max_width: (right - meta_g.size().x - 10.0 - left).max(20.0),
+                    max_rows: 1,
+                    break_anywhere: true,
+                    overflow_character: Some('…'),
+                };
+                let title_g = ui.fonts_mut(|f| f.layout_job(job));
+                painter.galley(egui::pos2(left, rect.center().y - title_g.size().y / 2.0), title_g, TEXT);
+
+                let resp = resp.on_hover_text(&m.title);
                 if resp.clicked() {
                     clicked = Some(m.id.clone());
                 }
-                ui.add_space(2.0);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                ui.add_space(1.0);
             }
             if self.meetings.is_empty() {
                 ui.add_space(20.0);
@@ -625,6 +847,9 @@ impl App {
         });
         if let Some(id) = clicked {
             if self.selected.as_deref() != Some(id.as_str()) {
+                if self.player.as_ref().map(|p| p.meeting_id != id).unwrap_or(false) {
+                    self.player = None;
+                }
                 self.selected = Some(id);
                 self.edit_summary = false;
                 self.llm_error = None;
@@ -676,20 +901,7 @@ impl App {
                         ui.close();
                     }
                     if ui.button("Save to Downloads").clicked() {
-                        if let Some(m) = self.meeting(&id) {
-                            let dir = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-                            let safe: String = m
-                                .title
-                                .chars()
-                                .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
-                                .collect();
-                            let path = dir.join(format!("{}.md", safe.trim()));
-                            let msg = match std::fs::write(&path, m.to_markdown()) {
-                                Ok(()) => format!("Saved to Downloads as \"{}.md\"", safe.trim()),
-                                Err(e) => format!("Couldn't save: {e}"),
-                            };
-                            self.flash(msg);
-                        }
+                        self.save_to_downloads(&id);
                         ui.close();
                     }
                     ui.separator();
@@ -802,6 +1014,10 @@ impl App {
                             action = Some("start");
                         }
                         ui.add_space(6.0);
+                        if !elsewhere && self.has_audio(id) {
+                            self.player_controls(ui, ctx, id);
+                            return;
+                        }
                         let hint = if elsewhere {
                             "Another meeting is being recorded."
                         } else if self.meeting(id).map(|m| m.transcript.is_empty()).unwrap_or(true) {
@@ -898,7 +1114,8 @@ impl App {
                         ui.label(RichText::new("Turning speech into text…").size(12.5).color(BODY));
                     });
                 }
-                for e in [&self.mic_error, &self.download_error, &self.transcribe_error].into_iter().flatten() {
+                let player_error = self.player.as_ref().and_then(|p| p.error.clone());
+                for e in [&self.mic_error, &self.download_error, &self.transcribe_error, &player_error].into_iter().flatten() {
                     ui.add_space(6.0);
                     ui.label(RichText::new(format!("{e}")).size(12.5).color(RED));
                 }
@@ -1079,6 +1296,16 @@ impl App {
     fn transcript_tab(&mut self, ui: &mut egui::Ui, id: &str) {
         let recording_here = self.recording.as_ref().map(|r| r.id == id).unwrap_or(false);
         let mut copied = false;
+        let can_play = !recording_here && self.recording.is_none() && self.has_audio(id);
+        // Where playback is in this meeting, if it has been started or moved.
+        let play_ms = self
+            .player
+            .as_ref()
+            .filter(|p| p.meeting_id == id && (p.is_playing() || p.position_ms() > 0))
+            .map(|p| (p.position_ms(), p.is_playing()));
+        let mut jump: Option<i64> = None;
+        let mut current_seg: Option<usize> = None;
+        let last_seg = self.last_play_seg;
         let Some(m) = self.meetings.iter().find(|m| m.id == id) else { return };
         let count = m.transcript.len();
         ui.horizontal(|ui| {
@@ -1105,15 +1332,46 @@ impl App {
                     });
                     return;
                 }
-                for s in &m.transcript {
-                    ui.horizontal_top(|ui| {
-                        ui.add_sized(
-                            [52.0, 20.0],
-                            egui::Label::new(RichText::new(fmt_clock(s.start_ms)).monospace().size(12.5).color(MUTED)),
-                        );
-                        ui.add(egui::Label::new(RichText::new(&s.text).size(15.0).color(BODY)).wrap());
-                    });
-                    ui.add_space(4.0);
+                for (i, s) in m.transcript.iter().enumerate() {
+                    let next_start = m.transcript.get(i + 1).map(|x| x.start_ms).unwrap_or(i64::MAX);
+                    let current = play_ms.map(|(ms, _)| ms >= s.start_ms && ms < next_start).unwrap_or(false);
+                    if current {
+                        current_seg = Some(i);
+                    }
+                    let row = Frame::new()
+                        .fill(if current { ACCENT_SOFT } else { Color32::TRANSPARENT })
+                        .corner_radius(8)
+                        .inner_margin(Margin::symmetric(4, 3))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal_top(|ui| {
+                                let time = RichText::new(fmt_clock(s.start_ms)).monospace().size(12.5);
+                                if can_play {
+                                    let r = ui.add_sized(
+                                        [52.0, 20.0],
+                                        egui::Label::new(time.color(ACCENT)).sense(Sense::click()),
+                                    );
+                                    if r.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if r.on_hover_text("Play from here").clicked() {
+                                        jump = Some(s.start_ms);
+                                    }
+                                } else {
+                                    ui.add_sized([52.0, 20.0], egui::Label::new(time.color(MUTED)));
+                                }
+                                ui.add(
+                                    egui::Label::new(RichText::new(&s.text).size(15.0).color(if current { TEXT } else { BODY }))
+                                        .wrap(),
+                                );
+                            });
+                        })
+                        .response;
+                    // Keep the line being played in view.
+                    if current && last_seg != Some(i) && play_ms.map(|(_, playing)| playing).unwrap_or(false) {
+                        row.scroll_to_me(Some(Align::Center));
+                    }
+                    ui.add_space(2.0);
                 }
                 if recording_here {
                     ui.add_space(4.0);
@@ -1126,6 +1384,75 @@ impl App {
             });
         if copied {
             self.flash("Transcript copied");
+        }
+        self.last_play_seg = current_seg;
+        if let Some(ms) = jump {
+            let ctx = ui.ctx().clone();
+            self.play_from(&ctx, id, Some(ms));
+        }
+    }
+
+    /// Play / pause, the time and a slider to move through the meeting's recording.
+    fn player_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, id: &str) {
+        let here = self.player.as_ref().filter(|p| p.meeting_id == id);
+        let playing = here.map(|p| p.is_playing()).unwrap_or(false);
+        let total = here.map(|p| p.duration_ms()).unwrap_or_else(|| self.meeting(id).map(|m| m.duration_ms).unwrap_or(0));
+        let pos = here.map(|p| p.position_ms()).unwrap_or(0);
+
+        // round play / pause button
+        let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
+        let p = ui.painter();
+        p.circle_filled(r.center(), 18.0, if resp.hovered() { ACCENT.gamma_multiply(0.85) } else { ACCENT });
+        if playing {
+            for dx in [-4.0, 4.0] {
+                p.rect_filled(egui::Rect::from_center_size(r.center() + Vec2::new(dx, 0.0), Vec2::new(4.5, 14.0)), 1, Color32::WHITE);
+            }
+        } else {
+            let c = r.center() + Vec2::new(2.0, 0.0);
+            p.add(egui::Shape::convex_polygon(
+                vec![c + Vec2::new(-6.0, -8.0), c + Vec2::new(-6.0, 8.0), c + Vec2::new(8.0, 0.0)],
+                Color32::WHITE,
+                Stroke::NONE,
+            ));
+        }
+        let resp = resp.on_hover_text(if playing { "Pause" } else { "Play the recording" });
+        if resp.hovered() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        ui.add_space(4.0);
+        ui.label(RichText::new(format!("{} / {}", fmt_clock(pos), fmt_clock(total))).monospace().size(13.5).color(TEXT));
+        ui.add_space(6.0);
+
+        let mut secs = pos as f64 / 1000.0;
+        ui.spacing_mut().slider_width = (ui.available_width() - 12.0).max(80.0);
+        let slider = ui
+            .scope(|ui| {
+                ui.visuals_mut().selection.bg_fill = ACCENT; // played part of the track
+                ui.add(
+                    egui::Slider::new(&mut secs, 0.0..=(total.max(1) as f64 / 1000.0))
+                        .show_value(false)
+                        .trailing_fill(true),
+                )
+            })
+            .inner;
+
+        if resp.clicked() {
+            if playing {
+                if let Some(p) = &self.player {
+                    p.pause();
+                }
+            } else {
+                self.play_from(ctx, id, None);
+            }
+        }
+        if slider.changed() && self.ensure_player(id) {
+            if let Some(p) = &self.player {
+                p.seek_ms((secs * 1000.0) as i64);
+            }
+        }
+        if playing {
+            ctx.request_repaint_after(Duration::from_millis(33));
         }
     }
 
@@ -1473,6 +1800,9 @@ impl App {
                 }
             }
             if let Some(pos) = self.meetings.iter().position(|m| m.id == id) {
+                if self.player.as_ref().map(|p| p.meeting_id == id).unwrap_or(false) {
+                    self.player = None;
+                }
                 let m = self.meetings.remove(pos);
                 self.store.delete_meeting(&m);
             }
@@ -1612,6 +1942,29 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.handle_messages(&ctx);
 
+        // Menus and keyboard shortcuts
+        let st = self.menu_state();
+        #[cfg_attr(target_os = "macos", allow(unused_mut))]
+        let mut actions: Vec<crate::menu::Action> = self.menu_rx.try_iter().collect();
+        #[cfg(target_os = "macos")]
+        if let Some(nm) = self.native_menu.as_mut() {
+            nm.update(&st);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            actions.extend(crate::menu::shortcuts(&ctx, &st));
+            egui::Panel::top("menubar")
+                .frame(Frame::new().fill(SIDEBAR).inner_margin(Margin::symmetric(8, 3)).stroke(Stroke::new(1.0, BORDER)))
+                .show(ui, |ui| {
+                    if let Some(a) = crate::menu::window_menu_bar(ui, &st) {
+                        actions.push(a);
+                    }
+                });
+        }
+        for a in actions {
+            self.run_action(&ctx, a);
+        }
+
         if let Some(r) = &self.recording {
             if let Some(e) = r.rec.failed.lock().ok().and_then(|f| f.clone()) {
                 self.mic_error = Some(e);
@@ -1639,6 +1992,7 @@ impl eframe::App for App {
             .show(ui, |ui| self.main_area(ui));
 
         self.settings_window(&ctx);
+        self.guide_window(&ctx);
         self.delete_dialog(&ctx);
         self.toast(&ctx);
         self.save_dirty(false);
@@ -1654,4 +2008,70 @@ impl eframe::App for App {
         }
         self.save_dirty(true);
     }
+}
+
+/// The user guide (docs/user-guide.md) tidied for the in-app viewer: no pictures, tables as lines,
+/// links as plain words.
+fn guide_text() -> String {
+    let raw = include_str!("../docs/user-guide.md");
+    let mut lines: Vec<String> = Vec::new();
+    // whether the last line is ordinary text that a wrapped next line should continue
+    let mut joinable = false;
+    let mut in_code = false;
+    for line in raw.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            in_code = !in_code;
+            joinable = false;
+            continue;
+        }
+        if in_code {
+            if !t.is_empty() {
+                lines.push(format!("    `{}`", t));
+            }
+            continue;
+        }
+        if t.starts_with("<img") || t == "---" || t.starts_with("|---") || t.starts_with("| ---") {
+            joinable = false;
+            continue;
+        }
+        // skip the table of contents at the top
+        if t.starts_with("- [") && t.contains("](#") {
+            continue;
+        }
+        let mut l = t.to_string();
+        if t.starts_with('|') {
+            let cells: Vec<&str> = t.trim_matches('|').split('|').map(|c| c.trim()).collect();
+            l = format!("- {}", cells.join(" — "));
+        }
+        // [text](link) -> text
+        while let (Some(a), Some(b)) = (l.find("]("), l.find('[')) {
+            if b > a {
+                break;
+            }
+            let Some(close) = l[a..].find(')') else { break };
+            let text = l[b + 1..a].to_string();
+            l.replace_range(b..a + close + 1, &text);
+        }
+        l = l.trim_start_matches("> ").replace("<br>", " ");
+        if l.starts_with('#') {
+            l = l.replace('`', "");
+        }
+        let starts_block = l.is_empty()
+            || l.starts_with('#')
+            || l.starts_with("- ")
+            || l.starts_with("* ")
+            || l.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && l.contains(". ");
+        if !starts_block && joinable {
+            // a wrapped line: continue the previous paragraph or list item
+            if let Some(last) = lines.last_mut() {
+                last.push(' ');
+                last.push_str(&l);
+                continue;
+            }
+        }
+        joinable = !l.is_empty() && !l.starts_with('#');
+        lines.push(l);
+    }
+    lines.join("\n")
 }

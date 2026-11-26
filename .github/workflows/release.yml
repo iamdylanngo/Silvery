@@ -1,10 +1,11 @@
-# Publishes a Silvery release: push a version tag (for example v0.1.0) and GitHub builds
-# Silvery for macOS and Linux, then attaches the downloads to a new release on the Releases page.
+# Publishes a Silvery release. Push a version tag (for example v0.2.0) and GitHub builds Silvery on its
+# own Mac, Linux and Windows machines with the scripts in release/, then attaches the six downloads to a
+# new release on the Releases page.
 #
-#   git tag v0.1.0
-#   git push origin v0.1.0
+#   git tag v0.2.0
+#   git push origin v0.2.0
 #
-# Windows is paused for now and isn't part of releases yet.
+# Or: Actions › Release › Run workflow, and enter the tag.
 name: Release
 
 on:
@@ -13,91 +14,85 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Version tag to publish (e.g. v0.1.0). It's created if it doesn't exist."
+        description: "Version tag to publish (e.g. v0.2.0). It's created if it doesn't exist."
         required: true
 
 permissions:
   contents: write
 
 jobs:
-  macos:
-    name: "macOS (universal, Apple chip + Intel)"
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - name: Build Silvery.app
-        run: ./build-macos.sh universal
-      - name: Name the download
-        run: mv dist/Silvery-macos-universal.zip dist/Silvery-macOS.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: dist/Silvery-macOS.zip
-
-  linux:
-    name: Linux (${{ matrix.arch }})
+  build:
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Ubuntu 22.04 runners: the result also runs on Ubuntu 22.04+, Debian 12+ and similar (glibc 2.35+)
-          - arch: x86_64
+          - name: macOS Intel
+            runner: macos-latest
+            script: ./release/macos-intel.sh
+          - name: macOS Apple Silicon
+            runner: macos-latest
+            script: ./release/macos-apple-silicon.sh
+          # Ubuntu 22.04 machines: the Linux programs also run on Ubuntu 22.04+, Debian 12+ and similar.
+          - name: Linux x86_64
             runner: ubuntu-22.04
-          - arch: arm64
+            script: ./release/linux-x86_64.sh
+          - name: Linux arm64
             runner: ubuntu-22.04-arm
+            script: ./release/linux-arm64.sh
+          - name: Windows x64
+            runner: windows-latest
+            script: ./release/windows-x64.ps1
+          - name: Windows arm64
+            runner: windows-11-arm
+            script: ./release/windows-arm64.ps1
+            # New: if this one fails, the release still goes out with the other five.
+            experimental: true
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
       - name: Linux build tools (sound, window and speech engine)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake clang libclang-dev pkg-config libasound2-dev \
             libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxkbcommon-dev \
             libwayland-dev libgl1-mesa-dev
-      - name: Build
-        run: cargo build --release
-      - name: Package (program + icon + menu entry)
+
+      - name: LLVM for Windows on ARM (speech engine)
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
         run: |
-          d=silvery-linux-${{ matrix.arch }}
-          mkdir -p "$d"
-          cp target/release/silvery "$d/silvery"
-          cp assets/logo-256.png "$d/silvery.png"
-          cp LICENSE "$d/"
-          cat > "$d/silvery.desktop" <<'EOF'
-          [Desktop Entry]
-          Type=Application
-          Name=Silvery
-          Comment=Private meeting notes with a local AI
-          Exec=silvery
-          Icon=silvery
-          Categories=Office;AudioVideo;
-          Terminal=false
-          EOF
-          cat > "$d/install.sh" <<'EOF'
-          #!/bin/sh
-          # Installs Silvery for this user: program in ~/.local/bin, menu entry and icon.
-          set -e
-          cd "$(dirname "$0")"
-          mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
-          install -m 755 silvery ~/.local/bin/silvery
-          install -m 644 silvery.png ~/.local/share/icons/hicolor/256x256/apps/silvery.png
-          sed "s|^Exec=.*|Exec=$HOME/.local/bin/silvery|" silvery.desktop > ~/.local/share/applications/silvery.desktop
-          echo "Silvery is installed. Find it in your applications menu, or run: ~/.local/bin/silvery"
-          EOF
-          chmod +x "$d/install.sh"
-          tar czf "$d.tar.gz" "$d"
+          if (-not (Test-Path "C:\Program Files\LLVM\bin\libclang.dll")) {
+            $v = "19.1.7"
+            Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$v/LLVM-$v-woa64.exe" -OutFile llvm.exe
+            Start-Process .\llvm.exe -ArgumentList "/S" -Wait
+          }
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: ${{ matrix.script }}
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ${{ matrix.script }}
+
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
-          path: silvery-linux-${{ matrix.arch }}.tar.gz
+          name: ${{ matrix.name }}
+          path: dist/release/*
+          if-no-files-found: error
 
   publish:
     name: Publish the release
-    needs: [macos, linux]
+    needs: build
+    # Publish whatever was built, even if the experimental Windows ARM build failed.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -105,21 +100,34 @@ jobs:
           path: downloads
           merge-multiple: true
       - name: Checksums
-        run: cd downloads && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+        run: |
+          cd downloads
+          ls -la
+          test -n "$(ls)" || { echo "Nothing was built."; exit 1; }
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: Silvery ${{ github.event.inputs.tag || github.ref_name }}
           generate_release_notes: true
+          fail_on_unmatched_files: false
           body: |
             ## Download
 
-            | Your computer | File |
+            Pick the file for your computer under **Assets** below:
+
+            | Your computer | File ends with |
             |---|---|
-            | Mac (Apple chip or Intel, macOS 11+) | **Silvery-macOS.zip** |
-            | Linux PC (Intel/AMD) | **silvery-linux-x86_64.tar.gz** |
-            | Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | **silvery-linux-arm64.tar.gz** |
+            | Mac with an Apple chip (M1 and later) | `macOS-AppleSilicon.zip` |
+            | Mac with an Intel chip | `macOS-Intel.zip` |
+            | Windows PC (Intel/AMD) | `Windows-x64.zip` |
+            | Windows on ARM (Snapdragon laptops) | `Windows-arm64.zip` |
+            | Linux PC (Intel/AMD) | `Linux-x86_64.tar.gz` |
+            | Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | `Linux-arm64.tar.gz` |
+
+            Not sure which Mac you have? Apple menu › About This Mac: "Chip: Apple M…" means Apple chip.
 
             You also need [Ollama](https://ollama.com) with a model, for example `ollama pull qwen3:8b`.
-            Install steps are in the [user guide](https://github.com/${{ github.repository }}/blob/main/docs/user-guide.md#installing-silvery).
+            Install steps: [user guide](https://github.com/${{ github.repository }}/blob/main/docs/user-guide.md#installing-silvery).
           files: downloads/*

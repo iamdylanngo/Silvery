@@ -12,6 +12,7 @@ write the notes. Nothing is sent to the internet.
 - [Summary](#summary)
 - [Ask](#ask)
 - [Finding, copying and saving meetings](#finding-copying-and-saving-meetings)
+- [Menus and keyboard shortcuts](#menus-and-keyboard-shortcuts)
 - [Settings](#settings)
 - [Where your meetings are kept](#where-your-meetings-are-kept)
 - [Troubleshooting](#troubleshooting)
@@ -23,21 +24,30 @@ write the notes. Nothing is sent to the internet.
 Download Silvery from the project's **Releases** page on GitHub (the **Releases** link on the right side of
 the project page, or `…/releases/latest`). Open **Assets** under the newest version and pick your file.
 
-### Mac: `Silvery-macOS.zip`
-Works on Apple-chip and Intel Macs with macOS 11 or newer.
+### Mac: `…-macOS-AppleSilicon.zip` or `…-macOS-Intel.zip`
+Not sure which Mac you have? Apple menu › **About This Mac**. "Chip: Apple M…" means **Apple Silicon**,
+and "Processor: … Intel" means **Intel**. Both need macOS 11 or newer.
 1. Double-click the zip. It unpacks to **Silvery.app**.
 2. Drag **Silvery.app** into your **Applications** folder.
 3. The first time, **right-click Silvery › Open › Open**. Silvery doesn't have an Apple developer
    certificate, so a normal double-click shows "unidentified developer" the first time only.
 
-### Linux: `silvery-linux-x86_64.tar.gz` or `silvery-linux-arm64.tar.gz`
+### Windows: `…-Windows-x64.zip` or `…-Windows-arm64.zip`
+Choose **x64** for ordinary Intel/AMD PCs and **arm64** for ARM laptops (for example Snapdragon). Not sure?
+Settings › System › About › *System type*.
+1. Right-click the zip › **Extract All…**, and put the folder somewhere you like (for example Documents).
+2. Double-click **Silvery.exe**. If Windows shows "Windows protected your PC", choose **More info ›
+   Run anyway**. This is only needed the first time, because Silvery isn't signed with a Microsoft certificate.
+3. If no sound comes in when recording, see [Troubleshooting](#troubleshooting).
+
+### Linux: `…-Linux-x86_64.tar.gz` or `…-Linux-arm64.tar.gz`
 Choose **x86_64** for ordinary Intel/AMD PCs and **arm64** for ARM computers (Ubuntu in UTM/Parallels on an
 Apple-chip Mac, Raspberry Pi 4/5). Not sure? Run `uname -m`: `x86_64` or `aarch64` (= arm64).
 Works on Ubuntu 22.04 or newer, Debian 12 or newer and similar systems.
 
 ```sh
-tar xzf silvery-linux-x86_64.tar.gz      # or …-arm64
-cd silvery-linux-x86_64
+tar xzf Silvery-*-Linux-x86_64.tar.gz    # or …-arm64
+cd Silvery-*-Linux-x86_64
 ./install.sh                             # adds Silvery to your applications menu
 ```
 
@@ -45,8 +55,8 @@ If it complains about missing libraries:
 `sudo apt install libasound2t64 libxkbcommon-x11-0 libgl1` (`libasound2` on Ubuntu 22.04).
 
 ### Check the download (optional)
-Each release has a `SHA256SUMS.txt`. Compare it with the result of `shasum -a 256 <file>` on Mac or
-`sha256sum <file>` on Linux.
+Each release has a `SHA256SUMS.txt`. Compare it with the result of `shasum -a 256 <file>` on Mac,
+`sha256sum <file>` on Linux, or `Get-FileHash <file>` in Windows PowerShell.
 
 ---
 
@@ -125,6 +135,16 @@ transcript on the clipboard.
 
 Recording again in the same meeting **adds** to the transcript.
 
+### Playing back a recording
+When a meeting has a recording, the bar next to **Record** shows a **play button**, the time and a
+**slider**:
+- press **▶** to listen (and again to pause), or drag the slider to move through the meeting;
+- in the **Transcript**, the times are blue: **click a time** to hear that moment;
+- the line being played is highlighted and stays in view.
+
+All recordings of a meeting play as one, in the same order as the transcript. Playback stops when you
+start recording or open another meeting.
+
 ---
 
 ## My notes
@@ -182,6 +202,31 @@ the AI says so.
   - **Copy as text:** title, summary, notes and transcript as Markdown;
   - **Save to Downloads:** the same as a `.md` file in your Downloads folder;
   - **Delete meeting:** removes the meeting and its recording (asks first).
+
+---
+
+## Menus and keyboard shortcuts
+
+On a Mac the menus are in the menu bar at the top of the screen. On Windows and Linux they're at the top
+of the Silvery window, and the shortcuts use **Ctrl** instead of **⌘**.
+
+| Menu | Item | Mac | Windows / Linux |
+|---|---|---|---|
+| File | New Meeting | ⌘N | Ctrl+N |
+| File | Copy Meeting as Text | ⇧⌘C | Ctrl+Shift+C |
+| File | Save to Downloads | ⌘S | Ctrl+S |
+| File | Delete Meeting… | ⌘⌫ | Ctrl+Backspace |
+| Recording | Record / Stop Recording | ⌘R | Ctrl+R |
+| Recording | Pause / Resume Recording | ⇧⌘R | Ctrl+Shift+R |
+| Recording | Play / Pause the recording | ⇧⌘P | Ctrl+Shift+P |
+| View | Summary · Transcript · My Notes · Ask | ⌘1 – ⌘4 | Ctrl+1 – Ctrl+4 |
+| View | Search Meetings | ⌘F | Ctrl+F |
+| Help | Silvery User Guide (this guide, inside the app) | ⇧⌘/ | Ctrl+Shift+/ |
+| Silvery (Mac) / File | Settings… | ⌘, | Ctrl+, |
+| Silvery (Mac) / File | Quit Silvery | ⌘Q | Ctrl+Q |
+
+Items that can't be used right now are greyed out. For example, **Pause Recording** only works while
+recording, and **Play Recording** only works when the meeting has a recording.
 
 ---
 

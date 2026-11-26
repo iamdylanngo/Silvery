@@ -8,8 +8,10 @@ mod app;
 mod audio;
 mod llm;
 mod markdown;
+mod menu;
 mod mic;
 mod platform;
+mod playback;
 mod model;
 mod theme;
 mod transcribe;
@@ -36,6 +38,28 @@ fn main() -> eframe::Result<()> {
         .and_then(|i| args.get(i + 1))
         .map(std::path::PathBuf::from);
 
+    if let Some(i) = args.iter().position(|a| a == "--play-check") {
+        // Plays a WAV silently (volume 0) for 1.5 s and reports how far playback moved.
+        let path = std::path::PathBuf::from(args.get(i + 1).expect("--play-check <file.wav>"));
+        let dir = path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        match playback::Player::load("check", &dir, &[name]) {
+            Some(mut p) => {
+                p.set_volume(0.0);
+                p.play(&egui::Context::default());
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+                println!(
+                    "length {} ms, played to {} ms, playing: {}, error: {:?}",
+                    p.duration_ms(),
+                    p.position_ms(),
+                    p.is_playing(),
+                    p.error
+                );
+            }
+            None => println!("no audio in {}", path.display()),
+        }
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--install-app") {
         match mic::install_bundle() {
             Ok(p) => println!("installed {}", p.display()),

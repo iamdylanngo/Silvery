@@ -18,7 +18,7 @@ build_for() { # <rust target> → prints the path of the built program
   rustup target add "$1" >/dev/null 2>&1 || true
   # Intel Macs from macOS 11 on, Apple-chip Macs from macOS 11 on
   MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target "$1" >&2
-  echo "target/$1/release/silvery"
+  echo "${CARGO_TARGET_DIR:-target}/$1/release/silvery"
 }
 
 case "$what" in
@@ -27,9 +27,10 @@ case "$what" in
   universal)
     a=$(build_for aarch64-apple-darwin)
     b=$(build_for x86_64-apple-darwin)
-    mkdir -p target/universal
-    lipo -create -output target/universal/silvery "$a" "$b"
-    exe=target/universal/silvery; label=universal ;;
+    u="${CARGO_TARGET_DIR:-target}/universal"
+    mkdir -p "$u"
+    lipo -create -output "$u/silvery" "$a" "$b"
+    exe="$u/silvery"; label=universal ;;
   *) echo "Unknown choice: $what (use arm64, intel or universal)"; exit 1 ;;
 esac
 

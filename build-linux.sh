@@ -17,11 +17,11 @@ if [ "$what" = test ]; then
   docker_arch=$([ "$arch" = arm64 ] && echo arm64 || echo amd64)
   MODELS="$HOME/Library/Application Support/Silvery/models"
   [ -d "$MODELS" ] || MODELS="$HOME/.local/share/Silvery/models"
-  docker build -q --build-arg PLATFORM="linux/$docker_arch" -t "silvery-builder-$docker_arch" docker >/dev/null
+  docker build -q --build-arg PLATFORM="linux/$docker_arch" -t "silvery-linux-builder-$docker_arch" -f docker/Dockerfile.linux docker >/dev/null
   docker run --rm --platform "linux/$docker_arch" \
     -v "$PWD":/src \
     -v "$MODELS":/root/.local/share/Silvery/models:ro \
-    "silvery-builder-$docker_arch" bash -c "
+    "silvery-linux-builder-$docker_arch" bash -c "
       mkdir -p /root/.local/share/Silvery
       if [ -f /src/shots/speech.wav ]; then
         echo '--- speech to text'; /src/dist/silvery-linux-$arch --self-test /src/shots/speech.wav 2>&1 | tail -4

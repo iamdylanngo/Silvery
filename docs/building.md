@@ -20,10 +20,18 @@ Every system needs Rust (https://rustup.rs) and **Ollama** (https://ollama.com) 
 4. On another Mac, the first time: right-click Silvery.app › Open › Open. The app is signed only
    "ad-hoc" (no Apple developer certificate), so macOS warns that it's from an unidentified developer.
 
+## Release downloads for every system
+The scripts in [`release/`](../release/README.md) make the six downloads (macOS Intel / Apple Silicon,
+Linux x86_64 / arm64, Windows x64 / arm64) in `dist/release/`. GitHub runs them for every release; see
+[releasing.md](releasing.md). Below are the tools each system needs.
+
 ## Windows 10/11
-1. Install "Visual Studio Build Tools" with **Desktop development with C++**, plus CMake and LLVM
-   (`winget install Kitware.CMake LLVM.LLVM`).
-2. `cargo build --release` → `target\release\silvery.exe`
+1. Install "Visual Studio 2022 Build Tools" with **Desktop development with C++**, plus CMake and LLVM
+   (`winget install Kitware.CMake LLVM.LLVM`). For Windows on ARM, also tick the
+   **C++ Clang Compiler for Windows** component in the Visual Studio Installer.
+2. In PowerShell: `.\release\windows-x64.ps1` (or `.\release\windows-arm64.ps1` on an ARM PC)
+   → `dist\release\Silvery-<version>-Windows-<x64|arm64>.zip`.
+   For quick development builds, `cargo build --release` → `target\release\silvery.exe`.
 3. If no sound comes in: Settings › Privacy & security › Microphone, turn on
    "Let desktop apps access your microphone".
 
@@ -36,7 +44,10 @@ Every system needs Rust (https://rustup.rs) and **Ollama** (https://ollama.com) 
 - Other cards (Vulkan SDK installed): `cargo build --release --features vulkan`
 
 ## Building the Linux and Windows versions from a Mac (Docker)
-Docker Desktop must be running. There are two scripts:
+Docker Desktop must be running. For downloads to share, use `./release/linux-x86_64.sh` and
+`./release/linux-arm64.sh` (see above), and `./release/test-linux.sh <arch>` to try them on Debian 12.
+Both build on Debian 12, so the programs also run on older Linux such as Debian 12 and Ubuntu 22.04.
+For quick development builds there are also:
 
 **Linux: `./build-linux.sh`** builds both Linux versions into `dist/`:
 - `silvery-linux-x86_64`: for 64-bit Intel/AMD Linux PCs (`./build-linux.sh x86_64` for just this one).
@@ -48,15 +59,15 @@ Docker Desktop must be running. There are two scripts:
 Both need the usual desktop libraries, which ordinary Ubuntu desktops already have:
 `sudo apt install libasound2t64 libxkbcommon-x11-0 libgl1` (`libasound2` on Ubuntu 22.04 or older).
 
-**Windows: `./build-windows.sh`** is **paused / unfinished**. It produces
-`dist/windows-unfinished/silvery-windows-x86_64.exe`, which still needs `libstdc++-6.dll` beside it and
-hasn't been tried on Windows yet.
+**Windows from a Mac: `./build-windows.sh`** is an *experiment* (MinGW cross-compile). It produces
+`dist/windows-unfinished/silvery-windows-x86_64.exe`, which still needs `libstdc++-6.dll` beside it.
+Use the Windows release scripts on a Windows PC (or the GitHub release) instead.
 
 ## Automatic builds
-- `.github/workflows/build.yml` builds the macOS and both Linux versions on GitHub's own machines on every
-  push. The programs appear under the run's "Artifacts". Windows is paused.
-- `.github/workflows/release.yml` makes the downloads on the **Releases** page when you push a version tag
-  such as `v0.2.0`. See [releasing.md](releasing.md).
+- `.github/workflows/build.yml` checks on every push that macOS, both Linux versions and Windows x64 still
+  build on GitHub's own machines. The programs appear under the run's "Artifacts".
+- `.github/workflows/release.yml` runs the six release scripts and publishes the downloads on the
+  **Releases** page when you push a version tag such as `v0.2.0`. See [releasing.md](releasing.md).
 
 ## Where Silvery keeps things
 - macOS: `~/Library/Application Support/Silvery`

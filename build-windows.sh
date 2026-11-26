@@ -6,6 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 source docker/run.sh
+export SILVERY_DOCKERFILE=docker/Dockerfile   # MinGW cross-compiler (newer Debian)
 mkdir -p dist/windows-unfinished
 
 echo "=== Windows (x86_64) — unfinished ==="
