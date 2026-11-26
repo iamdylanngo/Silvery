@@ -29,8 +29,16 @@ Not sure which Mac you have? Apple menu › **About This Mac**. "Chip: Apple M�
 and "Processor: … Intel" means **Intel**. Both need macOS 11 or newer.
 1. Double-click the zip. It unpacks to **Silvery.app**.
 2. Drag **Silvery.app** into your **Applications** folder.
-3. The first time, **right-click Silvery › Open › Open**. Silvery doesn't have an Apple developer
-   certificate, so a normal double-click shows "unidentified developer" the first time only.
+3. Double-click **Silvery**. The first time, macOS may say *"Silvery.app" Not Opened: Apple could not
+   verify "Silvery.app" is free of malware…*. That's because Silvery isn't signed with an Apple developer
+   certificate yet, not because something is wrong. To open it:
+   - press **Done** (not *Move to Bin*);
+   - open **System Settings › Privacy & Security** and scroll down to the **Security** section;
+   - next to *"Silvery.app" was blocked to protect your Mac*, press **Open Anyway**;
+   - press **Open Anyway** again and enter your Mac password.
+
+   macOS remembers this, so after that Silvery opens normally. On macOS 14 or older, right-click
+   Silvery › **Open** › **Open** also works.
 
 ### Windows: `…-Windows-x64.zip` or `…-Windows-arm64.zip`
 Choose **x64** for ordinary Intel/AMD PCs and **arm64** for ARM laptops (for example Snapdragon). Not sure?
@@ -282,8 +290,12 @@ slower because the model is loading.
 Speak closer to the microphone (aim for green bars). On a fast computer, try **English, more accurate**.
 For other languages, choose **Any language** and set the language.
 
-**macOS says the app is from an unidentified developer**
-Right-click `Silvery.app` › **Open** › **Open**. This is only needed the first time.
+**macOS says "Silvery.app" Not Opened / Apple could not verify… / unidentified developer**
+Press **Done**, then **System Settings › Privacy & Security** › **Open Anyway** next to the Silvery message,
+and confirm with your password (see [Installing Silvery](#installing-silvery)). This is only needed the first
+time. If the Open Anyway button doesn't appear, open Terminal and run:
+`xattr -dr com.apple.quarantine /Applications/Silvery.app` (this removes macOS's "downloaded from the
+internet" mark from Silvery), then open Silvery again.
 
 **Linux: "version `GLIBC_2.38' not found"**
 That build was made on a newer Linux than yours. Build Silvery on your own machine (see the

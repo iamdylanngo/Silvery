@@ -48,6 +48,9 @@ your computer:
 | Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | `Silvery-<version>-Linux-arm64.tar.gz` |
 
 Install steps for each system are in the [user guide](docs/user-guide.md#installing-silvery).
+**Mac, first time only:** if macOS says *"Apple could not verify Silvery.app…"*, press **Done**, then
+**System Settings › Privacy & Security › Open Anyway**. Silvery isn't signed with an Apple developer
+certificate yet ([how to add one](docs/releasing.md#removing-the-macos-warning-developer-id-signing-and-notarization)).
 
 ## Quick start
 

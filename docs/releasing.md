@@ -64,6 +64,45 @@ Run the scripts yourself (each only on a computer that can build it; see the tab
   paid plan for them. If those jobs can't start, remove them from `release.yml`.
 - **Settings › Actions › General › Workflow permissions** must allow "Read and write", so the workflow can
   create the release.
-- **Signing:** the Mac app is signed ad-hoc only, so people open it the first time with right-click › Open.
+- **Signing:** without the Mac signing secrets below, the Mac app is signed ad-hoc only, so macOS says
+  *"Apple could not verify…"* and people use **System Settings › Privacy & Security › Open Anyway** once.
   Windows shows "Windows protected your PC" until the program is signed. Removing these warnings needs
   an Apple Developer account ($99/year, plus notarization) and a Windows code-signing certificate.
+
+## Removing the macOS warning: Developer ID signing and notarization
+
+macOS only opens downloaded apps without a warning if they're signed with an Apple **Developer ID** and
+**notarized** (checked by Apple). The release workflow and `build-macos.sh` do both automatically as soon as
+the details below exist. Until then the Mac downloads still work, with the one-time *Open Anyway* step.
+
+**1. Get the certificate (once).**
+- Join the Apple Developer Program at developer.apple.com ($99/year).
+- In Xcode › Settings › Accounts › *Manage Certificates*, add a **Developer ID Application** certificate
+  (or create it at developer.apple.com › Certificates).
+- In the Keychain Access app, right-click the certificate › **Export…** as a `.p12` file with a password.
+- Its full name (e.g. `Developer ID Application: Jane Doe (AB12CD34EF)`) is the *signing identity*.
+  `AB12CD34EF` is your *Team ID*.
+
+**2. Make an app-specific password** at account.apple.com › Sign-In and Security › App-Specific Passwords.
+
+**3. Add these repository secrets** (GitHub › Settings › Secrets and variables › Actions › New secret):
+
+| Secret | Value |
+|---|---|
+| `MACOS_CERTIFICATE` | the `.p12` file as base64: `base64 -i certificate.p12 \| pbcopy`, then paste |
+| `MACOS_CERTIFICATE_PASSWORD` | the password you chose when exporting the `.p12` |
+| `MACOS_SIGN_IDENTITY` | `Developer ID Application: Jane Doe (AB12CD34EF)` |
+| `APPLE_ID` | the Apple ID email of the developer account |
+| `APPLE_TEAM_ID` | `AB12CD34EF` |
+| `APPLE_APP_PASSWORD` | the app-specific password from step 2 |
+
+The next release then signs Silvery with the hardened runtime (plus permission to use the microphone, from
+`assets/Silvery.entitlements`), sends it to Apple for notarization, and staples the result to the app.
+The job log shows *"Notarized: macOS will open it without warnings."*
+
+**On your own Mac**, the same works with environment variables:
+```sh
+SILVERY_SIGN_IDENTITY="Developer ID Application: Jane Doe (AB12CD34EF)" \
+SILVERY_NOTARY_APPLE_ID=you@example.com SILVERY_NOTARY_TEAM_ID=AB12CD34EF \
+SILVERY_NOTARY_PASSWORD=abcd-efgh-ijkl-mnop ./release/macos-apple-silicon.sh
+```
