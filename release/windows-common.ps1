@@ -65,7 +65,7 @@ function Build-SilveryWindows {
     Copy-Item (Join-Path $env:CARGO_TARGET_DIR "$RustTarget\release\silvery.exe") (Join-Path $stage "Silvery.exe")
     Copy-Item "LICENSE" (Join-Path $stage "LICENSE.txt")
     @"
-Silvery $version: private meeting notes with a local AI
+Silvery ${version}: private meeting notes with a local AI
 
 1. Move this folder somewhere you like (for example Documents) and double-click Silvery.exe.
    If Windows shows "Windows protected your PC", choose More info > Run anyway (first time only).
