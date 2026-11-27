@@ -35,18 +35,22 @@ the speech model (about 150 MB, once). Silvery has no accounts, no cloud and no 
 
 ## Download
 
-Get the latest version from the **[Releases page](../../releases/latest)**. Under **Assets**, pick the file for
-your computer:
+Click the download for your computer. The links always fetch the **newest version**:
 
-| Your computer | File |
+| Your computer | Download |
 |---|---|
-| Mac with an Apple chip (M1 and later) | `Silvery-<version>-macOS-AppleSilicon.zip` |
-| Mac with an Intel chip | `Silvery-<version>-macOS-Intel.zip` |
-| Windows 10/11 PC (Intel/AMD) | `Silvery-<version>-Windows-x64.zip` |
-| Windows 11 on ARM (Snapdragon laptops) | `Silvery-<version>-Windows-arm64.zip` |
-| Linux PC (Intel/AMD) | `Silvery-<version>-Linux-x86_64.tar.gz` |
-| Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | `Silvery-<version>-Linux-arm64.tar.gz` |
+| 🍎 Mac with an Apple chip (M1, M2, M3, M4…) | **[Silvery for Mac (Apple chip)](../../releases/latest/download/Silvery-macOS-AppleSilicon.zip)** |
+| 🍎 Mac with an Intel chip | **[Silvery for Mac (Intel)](../../releases/latest/download/Silvery-macOS-Intel.zip)** |
+| 🪟 Windows 10/11 PC | **[Silvery for Windows](../../releases/latest/download/Silvery-Windows-x64.zip)** |
+| 🪟 Windows 11 on ARM (Snapdragon laptops) | [Silvery for Windows on ARM](../../releases/latest/download/Silvery-Windows-arm64.zip) |
+| 🐧 Linux PC (Intel/AMD) | **[Silvery for Linux](../../releases/latest/download/Silvery-Linux-x86_64.tar.gz)** |
+| 🐧 Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | [Silvery for Linux on ARM](../../releases/latest/download/Silvery-Linux-arm64.tar.gz) |
 
+**Which one?** On a Mac: Apple menu › *About This Mac*: "Chip: Apple M…" means Apple chip.
+On Windows: Settings › System › About › *System type* ("ARM-based processor" means ARM).
+On Linux: `uname -m` prints `x86_64` or `aarch64` (= ARM).
+
+What's new in each version, and older versions: [Releases page](../../releases/latest).
 Install steps for each system are in the [user guide](docs/user-guide.md#installing-silvery).
 **Mac, first time only:** if macOS says *"Apple could not verify Silvery.app…"*, press **Done**, then
 **System Settings › Privacy & Security › Open Anyway**. Silvery isn't signed with an Apple developer

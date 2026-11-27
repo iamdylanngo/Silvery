@@ -1,12 +1,12 @@
 #!/bin/bash
 # Tries a Linux release download on Debian 12 in Docker:
 #   ./release/test-linux.sh arm64      (or x86_64)
-# It unpacks dist/release/Silvery-<version>-Linux-<arch>.tar.gz, shows the newest system library
+# It unpacks dist/release/Silvery-Linux-<arch>.tar.gz, shows the newest system library
 # version it needs, transcribes a spoken test clip and saves a picture of the window to shots/.
 source "$(dirname "$0")/common.sh"
 arch="${1:-x86_64}"
 docker_arch=$([ "$arch" = arm64 ] && echo arm64 || echo amd64)
-tarball="dist/release/Silvery-$VERSION-Linux-$arch.tar.gz"
+tarball="dist/release/Silvery-Linux-$arch.tar.gz"
 [ -f "$tarball" ] || { echo "Make it first: ./release/linux-$arch.sh"; exit 1; }
 
 MODELS="$HOME/Library/Application Support/Silvery/models"

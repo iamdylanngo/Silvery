@@ -63,6 +63,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use the release tag as Silvery's version (v1.2.3 → 1.2.3)
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          v="${TAG#v}"
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            perl -0pi -e "s/^version = \"[^\"]*\"/version = \"$v\"/m" Cargo.toml
+          else
+            echo "Tag '$TAG' isn't a version like v1.2.3; keeping the version from Cargo.toml."
+          fi
+          grep -m1 '^version' Cargo.toml
+
       - name: Developer ID certificate (only if the secrets are set)
         if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != ''
         run: |
@@ -89,12 +102,25 @@ jobs:
         if: runner.os == 'Windows' && runner.arch == 'ARM64'
         shell: pwsh
         run: |
-          if (-not (Test-Path "C:\Program Files\LLVM\bin\libclang.dll")) {
-            $v = "19.1.7"
-            Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$v/LLVM-$v-woa64.exe" -OutFile llvm.exe
-            Start-Process .\llvm.exe -ArgumentList "/S" -Wait
+          # The build tools here run as ARM64 programs, so they need the ARM64 build of LLVM
+          # (an x64 libclang.dll can't be loaded by them). Install it if what's there isn't ARM64.
+          function Get-PeMachine($path) {
+            $b = [System.IO.File]::ReadAllBytes($path)
+            $pe = [BitConverter]::ToInt32($b, 0x3C)
+            return [BitConverter]::ToUInt16($b, $pe + 4)   # 0xAA64 = ARM64, 0x8664 = x64
           }
-          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $llvm = "C:\Program Files\LLVM\bin"
+          $isArm = (Test-Path "$llvm\libclang.dll") -and ((Get-PeMachine "$llvm\libclang.dll") -eq 0xAA64)
+          if (-not $isArm) {
+            $v = "19.1.7"
+            $llvm = "C:\LLVM-arm64\bin"
+            Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$v/LLVM-$v-woa64.exe" -OutFile llvm.exe
+            Start-Process .\llvm.exe -ArgumentList "/S", "/D=C:\LLVM-arm64" -Wait
+          }
+          "LLVM (ARM64): $llvm"
+          & "$llvm\clang-cl.exe" --version
+          "LIBCLANG_PATH=$llvm" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $llvm | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build (macOS / Linux)
         if: runner.os != 'Windows'
@@ -117,6 +143,10 @@ jobs:
     # Publish whatever was built, even if the experimental Windows ARM build failed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -129,34 +159,52 @@ jobs:
           test -n "$(ls)" || { echo "Nothing was built."; exit 1; }
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      - name: Remove old files from this release (for example from an earlier run of the same tag)
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+              while read -r name; do
+                if [ ! -f "downloads/$name" ]; then
+                  echo "Removing old file: $name"
+                  gh release delete-asset "$TAG" "$name" --repo "$GITHUB_REPOSITORY" -y
+                fi
+              done
+          fi
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Silvery ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ env.TAG }}
+          name: Silvery ${{ env.TAG }}
+          make_latest: true
+          overwrite_files: true
           generate_release_notes: true
           fail_on_unmatched_files: false
           body: |
-            ## Download
+            ## ⬇️ Download Silvery
 
-            Pick the file for your computer under **Assets** below:
-
-            | Your computer | File ends with |
+            | Your computer | Download |
             |---|---|
-            | Mac with an Apple chip (M1 and later) | `macOS-AppleSilicon.zip` |
-            | Mac with an Intel chip | `macOS-Intel.zip` |
-            | Windows PC (Intel/AMD) | `Windows-x64.zip` |
-            | Windows on ARM (Snapdragon laptops) | `Windows-arm64.zip` |
-            | Linux PC (Intel/AMD) | `Linux-x86_64.tar.gz` |
-            | Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | `Linux-arm64.tar.gz` |
+            | 🍎 Mac with an Apple chip (M1, M2, M3, M4…) | **[Silvery for Mac (Apple chip)](${{ env.BASE }}/Silvery-macOS-AppleSilicon.zip)** |
+            | 🍎 Mac with an Intel chip | **[Silvery for Mac (Intel)](${{ env.BASE }}/Silvery-macOS-Intel.zip)** |
+            | 🪟 Windows 10/11 PC | **[Silvery for Windows](${{ env.BASE }}/Silvery-Windows-x64.zip)** |
+            | 🪟 Windows 11 on ARM (Snapdragon laptops) | [Silvery for Windows on ARM](${{ env.BASE }}/Silvery-Windows-arm64.zip) |
+            | 🐧 Linux PC (Intel/AMD) | **[Silvery for Linux](${{ env.BASE }}/Silvery-Linux-x86_64.tar.gz)** |
+            | 🐧 Linux on ARM (Ubuntu on Apple-chip Macs, Raspberry Pi 4/5) | [Silvery for Linux on ARM](${{ env.BASE }}/Silvery-Linux-arm64.tar.gz) |
 
-            Not sure which Mac you have? Apple menu › About This Mac: "Chip: Apple M…" means Apple chip.
-
-            **Mac, first time only:** if macOS says *"Silvery.app" Not Opened, Apple could not verify…*,
-            press **Done**, then open **System Settings › Privacy & Security**, scroll down to
-            *"Silvery.app" was blocked…* and press **Open Anyway** (then **Open Anyway** again and your password).
-            Silvery isn't signed with an Apple developer certificate yet, so macOS asks once.
-            Windows may similarly show *"Windows protected your PC"*: choose **More info › Run anyway**.
+            **Which one?** Mac: Apple menu › *About This Mac*: "Chip: Apple M…" means Apple chip.
+            Windows: Settings › System › About › *System type*. Linux: `uname -m` (`aarch64` means ARM).
 
             You also need [Ollama](https://ollama.com) with a model, for example `ollama pull qwen3:8b`.
-            Install steps: [user guide](https://github.com/${{ github.repository }}/blob/main/docs/user-guide.md#installing-silvery).
+            Step-by-step install: [user guide](https://github.com/${{ github.repository }}/blob/main/docs/user-guide.md#installing-silvery).
+
+            <details>
+            <summary><b>First time opening</b> (macOS says "Apple could not verify…", Windows says "Windows protected your PC")</summary>
+
+            **Mac:** press **Done**, then open **System Settings › Privacy & Security**, scroll down to
+            *"Silvery.app" was blocked…* and press **Open Anyway** (then **Open Anyway** again and your password).
+            Silvery isn't signed with an Apple developer certificate yet, so macOS asks once.
+
+            **Windows:** choose **More info › Run anyway**.
+            </details>
+
+            ---
           files: downloads/*

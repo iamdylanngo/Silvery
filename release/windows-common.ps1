@@ -3,10 +3,36 @@
 # Needs on the Windows PC:
 #   - Rust (https://rustup.rs)
 #   - Visual Studio 2022 Build Tools with "Desktop development with C++"
-#     (for ARM64 also the "C++ Clang Compiler for Windows" component)
+#     (for ARM64 also "MSVC ARM64 build tools" and "C++ CMake tools for Windows", plus LLVM for ARM64)
 #   - CMake and LLVM:  winget install Kitware.CMake LLVM.LLVM
 
 $ErrorActionPreference = "Stop"
+
+# Loads the Visual Studio developer environment (compiler, Windows SDK, Ninja) for the given processor,
+# like opening "Developer PowerShell for VS". Does nothing if it's already loaded.
+function Enter-VsDevEnvironment {
+    param([Parameter(Mandatory)] [string] $Arch)   # arm64 or amd64
+    if ($env:VSCMD_ARG_TGT_ARCH -eq $Arch) { return }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) {
+        Write-Warning "Visual Studio wasn't found; continuing without its developer environment."
+        return
+    }
+    $vs = & $vswhere -latest -products * -property installationPath
+    $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvarsall.bat"
+    if (-not (Test-Path $vcvars)) {
+        Write-Warning "vcvarsall.bat wasn't found in $vs; install 'Desktop development with C++'."
+        return
+    }
+    $hostArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+    $spec = if ($hostArch -eq $Arch) { $Arch } else { "${hostArch}_$Arch" }
+    Write-Host "==> Loading the Visual Studio developer environment ($spec)"
+    $vars = cmd /c "`"$vcvars`" $spec >nul 2>&1 && set"
+    if ($LASTEXITCODE -ne 0) { throw "vcvarsall.bat $spec failed. Is the ARM64 C++ build tools component installed?" }
+    foreach ($line in $vars) {
+        if ($line -match '^([^=]+)=(.*)$') { Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] }
+    }
+}
 
 function Build-SilveryWindows {
     param(
@@ -50,14 +76,42 @@ function Build-SilveryWindows {
     # Put the C/C++ runtime inside the .exe, so it runs without installing anything else.
     $env:RUSTFLAGS = "-C target-feature=+crt-static"
     if ($RustTarget -like "aarch64-*") {
-        # The speech engine can't be compiled for ARM with Microsoft's compiler; use Clang instead.
-        $env:CMAKE_GENERATOR_TOOLSET = "ClangCL"
+        # The speech engine can't be compiled for ARM with Microsoft's own compiler (cl.exe), and the
+        # Visual Studio project builder can't be switched to Clang from here (it always adds
+        # "host=x64"). So build it with Ninja and clang-cl (Clang that understands MSVC options),
+        # inside a Visual Studio developer environment for ARM64.
+        Remove-Item Env:CMAKE_GENERATOR_TOOLSET -ErrorAction SilentlyContinue
+        Enter-VsDevEnvironment -Arch "arm64"
+        # Use the same LLVM as libclang (on ARM PCs that must be the ARM64 build of LLVM).
+        foreach ($dir in @($env:LIBCLANG_PATH, "C:\Program Files\LLVM\bin", "C:\Program Files (x86)\LLVM\bin")) {
+            if ($dir -and (Test-Path (Join-Path $dir "clang-cl.exe"))) {
+                $env:PATH = "$dir;$env:PATH"
+                break
+            }
+        }
+        foreach ($tool in "clang-cl", "ninja") {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+                throw "$tool is missing. Install LLVM for ARM64 (winget install LLVM.LLVM) and the Visual Studio 'C++ CMake tools for Windows' component."
+            }
+        }
+        $env:CMAKE_GENERATOR = "Ninja"
+        $env:CC_aarch64_pc_windows_msvc = "clang-cl"
+        $env:CXX_aarch64_pc_windows_msvc = "clang-cl"
+
+        # A speech-engine build left over from a different builder can't be reused: start it fresh.
+        $buildDir = Join-Path $env:CARGO_TARGET_DIR "$RustTarget\release\build"
+        $stale = Get-ChildItem -Path $buildDir -Recurse -Filter "CMakeCache.txt" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -like "*whisper-rs-sys*" -and -not (Select-String -Path $_.FullName -Pattern "CMAKE_GENERATOR:INTERNAL=Ninja" -Quiet) }
+        if ($stale) {
+            Write-Host "==> Clearing an old speech-engine build"
+            cargo clean --release --target $RustTarget -p whisper-rs-sys
+        }
     }
 
     cargo build --release --target $RustTarget
     if ($LASTEXITCODE -ne 0) { throw "The build failed." }
 
-    $name = "Silvery-$version-Windows-$Label"
+    $name = "Silvery-Windows-$Label"
     $stage = Join-Path ([System.IO.Path]::GetTempPath()) $name
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
     New-Item -ItemType Directory -Path $stage | Out-Null

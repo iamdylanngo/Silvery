@@ -48,11 +48,11 @@ build_linux() {
   echo "$ROOT/target/linux-$arch/silvery"
 }
 
-# package_linux <arch> <program>: makes dist/release/Silvery-<version>-Linux-<arch>.tar.gz with the
+# package_linux <arch> <program>: makes dist/release/Silvery-Linux-<arch>.tar.gz with the
 # program, its icon, an applications-menu entry and install.sh.
 package_linux() {
   local arch="$1" exe="$2"
-  local name="Silvery-$VERSION-Linux-$arch"
+  local name="Silvery-Linux-$arch"
   local tmp; tmp=$(mktemp -d)
   local d="$tmp/$name"
   mkdir -p "$d"
@@ -100,6 +100,6 @@ package_macos() {
   fi
   "$ROOT/build-macos.sh" "$which"
   made=$(ls -t dist/Silvery-macos-*.zip | head -1)
-  mv "$made" "$OUT/Silvery-$VERSION-macOS-$label.zip"
-  say "Made $OUT/Silvery-$VERSION-macOS-$label.zip"
+  mv "$made" "$OUT/Silvery-macOS-$label.zip"
+  say "Made $OUT/Silvery-macOS-$label.zip"
 }

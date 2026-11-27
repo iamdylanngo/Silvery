@@ -27,10 +27,12 @@ Linux x86_64 / arm64, Windows x64 / arm64) in `dist/release/`. GitHub runs them 
 
 ## Windows 10/11
 1. Install "Visual Studio 2022 Build Tools" with **Desktop development with C++**, plus CMake and LLVM
-   (`winget install Kitware.CMake LLVM.LLVM`). For Windows on ARM, also tick the
-   **C++ Clang Compiler for Windows** component in the Visual Studio Installer.
+   (`winget install Kitware.CMake LLVM.LLVM`). For Windows on ARM, also tick **MSVC ARM64 build tools**
+   and **C++ CMake tools for Windows** in the Visual Studio Installer, and use the ARM64 build of LLVM
+   (winget installs it on ARM PCs). The ARM script builds the speech engine with Ninja and clang-cl, and
+   loads the Visual Studio developer environment by itself.
 2. In PowerShell: `.\release\windows-x64.ps1` (or `.\release\windows-arm64.ps1` on an ARM PC)
-   → `dist\release\Silvery-<version>-Windows-<x64|arm64>.zip`.
+   → `dist\release\Silvery-Windows-<x64|arm64>.zip`.
    For quick development builds, `cargo build --release` → `target\release\silvery.exe`.
 3. If no sound comes in: Settings › Privacy & security › Microphone, turn on
    "Let desktop apps access your microphone".

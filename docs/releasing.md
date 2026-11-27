@@ -8,12 +8,12 @@ releases automatically on GitHub's own Mac, Linux and Windows machines, using th
 
 | File | For | Made by |
 |---|---|---|
-| `Silvery-<version>-macOS-AppleSilicon.zip` | Macs with an Apple chip (M1+), macOS 11+ | `release/macos-apple-silicon.sh` |
-| `Silvery-<version>-macOS-Intel.zip` | Macs with an Intel chip, macOS 11+ | `release/macos-intel.sh` |
-| `Silvery-<version>-Linux-x86_64.tar.gz` | Linux on Intel/AMD PCs | `release/linux-x86_64.sh` |
-| `Silvery-<version>-Linux-arm64.tar.gz` | Linux on ARM | `release/linux-arm64.sh` |
-| `Silvery-<version>-Windows-x64.zip` | Windows 10/11 on Intel/AMD PCs | `release/windows-x64.ps1` |
-| `Silvery-<version>-Windows-arm64.zip` | Windows 11 on ARM | `release/windows-arm64.ps1` |
+| `Silvery-macOS-AppleSilicon.zip` | Macs with an Apple chip (M1+), macOS 11+ | `release/macos-apple-silicon.sh` |
+| `Silvery-macOS-Intel.zip` | Macs with an Intel chip, macOS 11+ | `release/macos-intel.sh` |
+| `Silvery-Linux-x86_64.tar.gz` | Linux on Intel/AMD PCs | `release/linux-x86_64.sh` |
+| `Silvery-Linux-arm64.tar.gz` | Linux on ARM | `release/linux-arm64.sh` |
+| `Silvery-Windows-x64.zip` | Windows 10/11 on Intel/AMD PCs | `release/windows-x64.ps1` |
+| `Silvery-Windows-arm64.zip` | Windows 11 on ARM | `release/windows-arm64.ps1` |
 | `SHA256SUMS.txt` | Checksums for checking the downloads | the workflow |
 
 - The **Mac** zips contain `Silvery.app` with its icon and the microphone description macOS needs.
@@ -26,7 +26,8 @@ releases automatically on GitHub's own Mac, Linux and Windows machines, using th
 
 ## Publish a new version
 
-1. Update `version` in `Cargo.toml` (for example `0.2.0`) and commit it. The file names use this number.
+1. Pick the new version number, for example `1.2.0`. The release takes it from the tag (`v1.2.0` → `1.2.0`)
+   and shows it in Silvery's About box. You don't have to edit `Cargo.toml`, but you can keep it in step.
 2. Tag the commit and push the tag:
    ```sh
    git tag v0.2.0
@@ -40,8 +41,16 @@ releases automatically on GitHub's own Mac, Linux and Windows machines, using th
 **Without the command line:** Actions › **Release** › **Run workflow**, enter a tag such as `v0.2.0` and
 press **Run workflow**. The tag is created for you.
 
-The link that always points to the newest version is `https://github.com/<owner>/<repo>/releases/latest`.
-The README's Download section already links there.
+**Keeping the download page clear**
+- The files have the same names in every release (no version number in them). So
+  `https://github.com/<owner>/<repo>/releases/latest/download/Silvery-macOS-AppleSilicon.zip` (and the same
+  for the other five) always downloads the newest version. The README's Download buttons use these links.
+- Each release has exactly the six downloads plus `SHA256SUMS.txt`. Running the release again for the same
+  tag replaces the files and removes any old leftovers.
+- The newest release is marked **Latest**, and its notes start with a "Download Silvery" table of direct links.
+- GitHub always lists older releases too, which is useful for going back to an older version. To hide one,
+  open it on the Releases page and delete it (its tag can stay). People following the README or the
+  "latest" links never see the old ones.
 
 ## If a build fails
 

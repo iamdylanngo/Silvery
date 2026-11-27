@@ -24,7 +24,7 @@ write the notes. Nothing is sent to the internet.
 Download Silvery from the project's **Releases** page on GitHub (the **Releases** link on the right side of
 the project page, or `…/releases/latest`). Open **Assets** under the newest version and pick your file.
 
-### Mac: `…-macOS-AppleSilicon.zip` or `…-macOS-Intel.zip`
+### Mac: `Silvery-macOS-AppleSilicon.zip` or `Silvery-macOS-Intel.zip`
 Not sure which Mac you have? Apple menu › **About This Mac**. "Chip: Apple M…" means **Apple Silicon**,
 and "Processor: … Intel" means **Intel**. Both need macOS 11 or newer.
 1. Double-click the zip. It unpacks to **Silvery.app**.
@@ -40,7 +40,7 @@ and "Processor: … Intel" means **Intel**. Both need macOS 11 or newer.
    macOS remembers this, so after that Silvery opens normally. On macOS 14 or older, right-click
    Silvery › **Open** › **Open** also works.
 
-### Windows: `…-Windows-x64.zip` or `…-Windows-arm64.zip`
+### Windows: `Silvery-Windows-x64.zip` or `Silvery-Windows-arm64.zip`
 Choose **x64** for ordinary Intel/AMD PCs and **arm64** for ARM laptops (for example Snapdragon). Not sure?
 Settings › System › About › *System type*.
 1. Right-click the zip › **Extract All…**, and put the folder somewhere you like (for example Documents).
@@ -48,14 +48,14 @@ Settings › System › About › *System type*.
    Run anyway**. This is only needed the first time, because Silvery isn't signed with a Microsoft certificate.
 3. If no sound comes in when recording, see [Troubleshooting](#troubleshooting).
 
-### Linux: `…-Linux-x86_64.tar.gz` or `…-Linux-arm64.tar.gz`
+### Linux: `Silvery-Linux-x86_64.tar.gz` or `Silvery-Linux-arm64.tar.gz`
 Choose **x86_64** for ordinary Intel/AMD PCs and **arm64** for ARM computers (Ubuntu in UTM/Parallels on an
 Apple-chip Mac, Raspberry Pi 4/5). Not sure? Run `uname -m`: `x86_64` or `aarch64` (= arm64).
 Works on Ubuntu 22.04 or newer, Debian 12 or newer and similar systems.
 
 ```sh
-tar xzf Silvery-*-Linux-x86_64.tar.gz    # or …-arm64
-cd Silvery-*-Linux-x86_64
+tar xzf Silvery-Linux-x86_64.tar.gz    # or …-arm64
+cd Silvery-Linux-x86_64
 ./install.sh                             # adds Silvery to your applications menu
 ```
 
