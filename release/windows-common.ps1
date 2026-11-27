@@ -78,38 +78,61 @@ function Build-SilveryWindows {
     if ($RustTarget -like "aarch64-*") {
         # The speech engine can't be compiled for ARM with Microsoft's own compiler (cl.exe), and the
         # Visual Studio project builder can't be switched to Clang from here (it always adds
-        # "host=x64"). So build it with Ninja and clang-cl (Clang that understands MSVC options),
-        # inside a Visual Studio developer environment for ARM64.
+        # "host=x64"). So, like whisper.cpp's own Windows-on-ARM build, use Ninja and Clang with
+        # release/windows-arm64-clang.cmake, inside a Visual Studio developer environment for ARM64.
         Remove-Item Env:CMAKE_GENERATOR_TOOLSET -ErrorAction SilentlyContinue
         Enter-VsDevEnvironment -Arch "arm64"
         # Use the same LLVM as libclang (on ARM PCs that must be the ARM64 build of LLVM).
         foreach ($dir in @($env:LIBCLANG_PATH, "C:\Program Files\LLVM\bin", "C:\Program Files (x86)\LLVM\bin")) {
-            if ($dir -and (Test-Path (Join-Path $dir "clang-cl.exe"))) {
+            if ($dir -and (Test-Path (Join-Path $dir "clang.exe"))) {
                 $env:PATH = "$dir;$env:PATH"
                 break
             }
         }
-        foreach ($tool in "clang-cl", "ninja") {
+        foreach ($tool in "clang", "clang++", "ninja") {
             if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
                 throw "$tool is missing. Install LLVM for ARM64 (winget install LLVM.LLVM) and the Visual Studio 'C++ CMake tools for Windows' component."
             }
         }
+        $toolchain = (Join-Path $PSScriptRoot "windows-arm64-clang.cmake") -replace '\\', '/'
         $env:CMAKE_GENERATOR = "Ninja"
-        $env:CC_aarch64_pc_windows_msvc = "clang-cl"
-        $env:CXX_aarch64_pc_windows_msvc = "clang-cl"
+        $env:CMAKE_TOOLCHAIN_FILE = $toolchain
+        # The C/C++ helper used by Rust crates (and for the flags passed to CMake) must be Clang too.
+        $env:CC_aarch64_pc_windows_msvc = "clang"
+        $env:CXX_aarch64_pc_windows_msvc = "clang++"
+        $env:CFLAGS_aarch64_pc_windows_msvc = "-fms-runtime-lib=static"
+        $env:CXXFLAGS_aarch64_pc_windows_msvc = "-fms-runtime-lib=static"
 
-        # A speech-engine build left over from a different builder can't be reused: start it fresh.
+        # A speech-engine build left over from a different setup can't be reused: start it fresh.
         $buildDir = Join-Path $env:CARGO_TARGET_DIR "$RustTarget\release\build"
         $stale = Get-ChildItem -Path $buildDir -Recurse -Filter "CMakeCache.txt" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -like "*whisper-rs-sys*" -and -not (Select-String -Path $_.FullName -Pattern "CMAKE_GENERATOR:INTERNAL=Ninja" -Quiet) }
+            Where-Object { $_.FullName -like "*whisper-rs-sys*" -and -not (Select-String -Path $_.FullName -Pattern "windows-arm64-clang.cmake" -SimpleMatch -Quiet) }
         if ($stale) {
             Write-Host "==> Clearing an old speech-engine build"
             cargo clean --release --target $RustTarget -p whisper-rs-sys
         }
     }
 
-    cargo build --release --target $RustTarget
-    if ($LASTEXITCODE -ne 0) { throw "The build failed." }
+    # Build, keeping a copy of the output so the first real errors can be shown at the end.
+    $log = Join-Path ([System.IO.Path]::GetTempPath()) "silvery-build-$Label.log"
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"   # compiler messages on stderr aren't failures by themselves
+    & cargo build --release --target $RustTarget 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $previous
+    if ($code -ne 0) {
+        $errors = Select-String -Path $log -Pattern '(^|\s)(error|fatal error)(\[|:)|error C\d{4}|error LNK\d{4}|CMake Error' |
+            Select-Object -First 25
+        Write-Host ""
+        Write-Host "==== First errors from the build ===="
+        foreach ($e in $errors) {
+            $line = $e.Line.Trim()
+            Write-Host $line
+            # Shown as annotations on GitHub (visible on the run's summary page).
+            if ($env:GITHUB_ACTIONS) { Write-Host "::error title=Windows $Label build::$line" }
+        }
+        throw "The build failed (see 'First errors from the build' above)."
+    }
 
     $name = "Silvery-Windows-$Label"
     $stage = Join-Path ([System.IO.Path]::GetTempPath()) $name
