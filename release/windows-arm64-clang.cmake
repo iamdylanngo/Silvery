@@ -18,3 +18,16 @@ set(CMAKE_CXX_COMPILER_TARGET ${target})
 set(silvery_flags "-O3 -DNDEBUG -march=armv8.2-a+dotprod+fp16 -fvectorize -fms-runtime-lib=static -Wno-format -Wno-unused-variable -Wno-unused-function -Wno-gnu-zero-variadic-macro-arguments")
 set(CMAKE_C_FLAGS_RELEASE "${silvery_flags}" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS_RELEASE "${silvery_flags}" CACHE STRING "" FORCE)
+
+# The Rust build helper (cmake crate) passes Linux/macOS-style "-fPIC" in CMAKE_<LANG>_FLAGS because
+# whisper-rs-sys asks for position-independent code. Clang refuses it for Windows targets
+# ("unsupported option '-fPIC' for target 'aarch64-pc-windows-msvc'"), and Windows doesn't need it,
+# so remove it before CMake tests the compiler.
+foreach(lang C CXX ASM)
+    if(DEFINED CMAKE_${lang}_FLAGS)
+        string(REGEX REPLACE "(^| )-f(PIC|PIE|pic|pie)( |$)" " " silvery_clean "${CMAKE_${lang}_FLAGS}")
+        string(REGEX REPLACE "(^| )-f(PIC|PIE|pic|pie)( |$)" " " silvery_clean "${silvery_clean}")
+        set(CMAKE_${lang}_FLAGS "${silvery_clean}" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS "${silvery_clean}")
+    endif()
+endforeach()
