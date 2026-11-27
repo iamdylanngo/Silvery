@@ -246,7 +246,9 @@ recording, and **Play Recording** only works when the meeting has a recording.
 |---|---|
 | **AI model** | Which Ollama model writes summaries and answers. *Check again* reconnects. *Address* is normally `http://localhost:11434`. |
 | **Microphone** | Which microphone to record from. *Test microphone* shows the live sound wave without recording. |
-| **Speech to text** | *English, fast* (recommended), *English, more accurate*, or *Any language*, with a language choice or automatic detection. Larger models are more accurate but slower. |
+| **Language of AI notes** | *Same as the meeting* (default: a Vietnamese meeting gets Vietnamese notes, headings included), or a fixed language, for example English notes for every meeting. Also used for Ask answers. |
+| **Speech to text** | *English, fast* (recommended for English), *English, more accurate*, *Any language, best* (Whisper large-v3-turbo, 574 MB: best for Vietnamese and mixed-language meetings), *Any language, fast* or *more accurate*. Each model is downloaded once. |
+| **Spoken language** | *Detect automatically*, or a language: English, Vietnamese (Tiếng Việt), Chinese, Malay, Indonesian, Thai, Filipino, Tamil, Hindi, Japanese, Korean, Spanish, French, German, Portuguese, Italian, Russian or Arabic. Choosing it is more reliable than detecting for short or quiet recordings. Choosing a non-English language while an English-only model is selected switches to *Any language, best* automatically. |
 | **Show my meeting files** | Opens the folder where Silvery keeps everything. |
 
 ---
@@ -288,7 +290,8 @@ slower because the model is loading.
 
 **The transcript is slow or misses words**
 Speak closer to the microphone (aim for green bars). On a fast computer, try **English, more accurate**.
-For other languages, choose **Any language** and set the language.
+For other languages, choose **Any language, best** in Settings › Speech to text and set the
+**Spoken language** (for example *Vietnamese*).
 
 **macOS says "Silvery.app" Not Opened / Apple could not verify… / unidentified developer**
 Press **Done**, then **System Settings › Privacy & Security** › **Open Anyway** next to the Silvery message,
@@ -300,6 +303,11 @@ internet" mark from Silvery), then open Silvery again.
 **Linux: "version `GLIBC_2.38' not found"**
 That build was made on a newer Linux than yours. Build Silvery on your own machine (see the
 [build guide](building.md)) or use a build made for older Linux.
+
+**Chinese, Japanese or Korean text shows as boxes (Linux)**
+Silvery uses the computer's own fonts for these languages. On Ubuntu/Debian install them with
+`sudo apt install fonts-noto-cjk` (Thai: `fonts-thai-tlwg`), then restart Silvery. macOS and Windows
+already have them.
 
 **After updating Silvery, macOS asks for the microphone again**
 That's expected for apps without an Apple developer certificate. Choose **Allow** again.

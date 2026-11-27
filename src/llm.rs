@@ -168,14 +168,45 @@ fn meeting_context(m: &crate::model::Meeting) -> String {
     ctx
 }
 
-pub fn summary_messages(m: &crate::model::Meeting, template: usize) -> Vec<Value> {
+/// Which language the AI should write a meeting's notes in: the language chosen in Settings, or else
+/// the language spoken most in the meeting. None means English or unknown (headings stay as given).
+pub fn notes_language_for(notes_setting: &str, meeting: &crate::model::Meeting) -> Option<String> {
+    if notes_setting != "auto" {
+        return Some(crate::transcribe::language_name(notes_setting));
+    }
+    match meeting.main_language() {
+        Some(code) if code != "en" => Some(crate::transcribe::language_name(code)),
+        _ => None,
+    }
+}
+
+/// The instruction about which language the AI writes in.
+/// `notes_language` is a language name like "Vietnamese", or None for "same as the meeting".
+fn language_rule(notes_language: Option<&str>) -> String {
+    match notes_language {
+        Some(lang) => format!(
+            "LANGUAGE: write the whole answer in {lang}, even if the meeting was in another language. \
+             This includes the title and every section heading: translate the English heading names \
+             above into {lang} (for example '## Overview' becomes the {lang} word for Overview). \
+             Keep people's names unchanged."
+        ),
+        None => "LANGUAGE: use the same language as the TRANSCRIPT below (if it mixes languages, the one \
+                 spoken most). If the transcript is in English, write in English and use the headings \
+                 exactly as given. If it is in another language, write the whole answer in that language, \
+                 including the title, and translate the heading names into it. Keep people's names unchanged."
+            .to_string(),
+    }
+}
+
+pub fn summary_messages(m: &crate::model::Meeting, template: usize, notes_language: Option<&str>) -> Vec<Value> {
     let t = &TEMPLATES[template.min(TEMPLATES.len() - 1)];
     let system = format!(
         "You are a meeting assistant. You write clear, short, accurate meeting notes in Markdown \
          from a transcript and the user's own notes. Only use facts that are in the material; \
-         never invent names, numbers or dates. Write in the same language as the transcript.\n\n\
-         Start with one line '# <short meeting title, max 6 words>'. Then {}",
-        t.instructions
+         never invent names, numbers or dates.\n\n\
+         Start with one line '# <short meeting title, max 6 words>'. Then {}\n\n{}",
+        t.instructions,
+        language_rule(notes_language),
     );
     vec![
         json!({"role": "system", "content": system}),
@@ -183,9 +214,13 @@ pub fn summary_messages(m: &crate::model::Meeting, template: usize) -> Vec<Value
     ]
 }
 
-pub fn ask_messages(m: &crate::model::Meeting) -> Vec<Value> {
+pub fn ask_messages(m: &crate::model::Meeting, notes_language: Option<&str>) -> Vec<Value> {
+    let lang = match notes_language {
+        Some(l) => format!("Always answer in {l}."),
+        None => "Answer in the language the question is asked in.".to_string(),
+    };
     let mut msgs = vec![json!({"role": "system", "content": format!(
-        "You answer questions about one meeting. Use only the material below. If the answer isn't there, say so. Keep answers short.\n\n{}{}",
+        "You answer questions about one meeting. Use only the material below. If the answer isn't there, say so. Keep answers short. {lang}\n\n{}{}",
         meeting_context(m),
         if m.summary.trim().is_empty() { String::new() } else { format!("\nSUMMARY:\n{}", strip_think(&m.summary)) }
     )})];

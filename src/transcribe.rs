@@ -14,9 +14,20 @@ pub struct WhisperModel {
 pub const MODELS: &[WhisperModel] = &[
     WhisperModel { id: "base.en", label: "English — fast (recommended)", size_mb: 148 },
     WhisperModel { id: "small.en", label: "English — more accurate", size_mb: 488 },
+    // Whisper large-v3-turbo, compressed: far better for Vietnamese and other languages,
+    // and for meetings that switch between languages.
+    WhisperModel { id: "large-v3-turbo-q5_0", label: "Any language — best (Vietnamese, mixed)", size_mb: 574 },
     WhisperModel { id: "base", label: "Any language — fast", size_mb: 148 },
     WhisperModel { id: "small", label: "Any language — more accurate", size_mb: 488 },
 ];
+
+/// The recommended model for languages other than English.
+pub const MULTILINGUAL_BEST: &str = "large-v3-turbo-q5_0";
+
+/// English-only models can't understand other languages.
+pub fn is_english_only(id: &str) -> bool {
+    id.ends_with(".en")
+}
 
 pub fn model_label(id: &str) -> String {
     MODELS
@@ -35,7 +46,8 @@ pub struct Job {
 }
 
 pub enum Out {
-    Segments { meeting_id: String, segments: Vec<Segment> },
+    /// `lang` is the spoken language the speech engine detected (a code like "vi"), if any.
+    Segments { meeting_id: String, segments: Vec<Segment>, lang: Option<String> },
     Busy(bool),
     Error(String),
 }
@@ -80,7 +92,7 @@ pub fn spawn_worker(out: mpsc::Sender<crate::app::Msg>, ctx: egui::Context) -> m
                 let ctxw = &loaded.as_ref().unwrap().1;
                 send(Out::Busy(true));
                 match run(ctxw, &job) {
-                    Ok(segments) => send(Out::Segments { meeting_id: job.meeting_id.clone(), segments }),
+                    Ok((segments, lang)) => send(Out::Segments { meeting_id: job.meeting_id.clone(), segments, lang }),
                     Err(e) => send(Out::Error(e)),
                 }
                 send(Out::Busy(false));
@@ -90,11 +102,11 @@ pub fn spawn_worker(out: mpsc::Sender<crate::app::Msg>, ctx: egui::Context) -> m
     tx
 }
 
-fn run(ctx: &WhisperContext, job: &Job) -> Result<Vec<Segment>, String> {
+fn run(ctx: &WhisperContext, job: &Job) -> Result<(Vec<Segment>, Option<String>), String> {
     // Skip silent chunks: whisper tends to invent text for silence.
     let rms = (job.samples.iter().map(|x| x * x).sum::<f32>() / job.samples.len().max(1) as f32).sqrt();
     if job.samples.len() < crate::audio::RATE / 2 || rms < 0.002 {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), None));
     }
     let mut state = ctx.create_state().map_err(|e| e.to_string())?;
     let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
@@ -128,7 +140,26 @@ fn run(ctx: &WhisperContext, job: &Job) -> Result<Vec<Segment>, String> {
             });
         }
     }
-    Ok(segs)
+    // The language that was spoken (chosen in Settings, or detected by the speech engine).
+    let spoken = if segs.is_empty() {
+        None
+    } else if lang != "auto" {
+        Some(lang.clone())
+    } else {
+        whisper_rs::get_lang_str(state.full_lang_id_from_state()).map(|s| s.to_string())
+    };
+    Ok((segs, spoken))
+}
+
+/// "vi" → "Vietnamese", using the speech engine's own list of language names.
+pub fn language_name(code: &str) -> String {
+    whisper_rs::get_lang_id(code)
+        .and_then(whisper_rs::get_lang_str_full)
+        .map(|n| {
+            let mut c = n.chars();
+            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+        })
+        .unwrap_or_else(|| code.to_string())
 }
 
 fn is_noise(t: &str) -> bool {

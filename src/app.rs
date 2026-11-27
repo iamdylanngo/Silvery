@@ -563,15 +563,19 @@ impl App {
             self.llm_error = Some((id.to_string(), "No AI model is chosen. Open Settings and pick one.".into()));
             return;
         }
+        let notes_lang = self.meeting(id).and_then(|m| llm::notes_language_for(&self.settings.notes_language, m));
+        let notes_chosen = self.settings.notes_language != "auto";
         let Some(m) = self.meeting_mut(id) else { return };
         let msgs = match kind {
             LlmKind::Summary => {
                 let t = m.template;
                 m.summary.clear();
-                llm::summary_messages(m, t)
+                llm::summary_messages(m, t, notes_lang.as_deref())
             }
             LlmKind::Chat => {
-                let msgs = llm::ask_messages(m);
+                // Ask answers follow the language of the question unless a notes language is chosen.
+                let chosen = if notes_chosen { notes_lang.as_deref() } else { None };
+                let msgs = llm::ask_messages(m, chosen);
                 m.chat.push(ChatMsg { role: "assistant".into(), content: String::new() });
                 msgs
             }
@@ -671,9 +675,14 @@ impl App {
                 }
                 Msg::Transcribe(out) => match out {
                     transcribe::Out::Busy(b) => self.transcribing = b,
-                    transcribe::Out::Segments { meeting_id, segments } => {
+                    transcribe::Out::Segments { meeting_id, segments, lang } => {
                         self.jobs_outstanding = self.jobs_outstanding.saturating_sub(1);
                         if let Some(m) = self.meeting_mut(&meeting_id) {
+                            // Remember which language was spoken, so the notes can be written in it.
+                            if let Some(code) = lang {
+                                let words: usize = segments.iter().map(|s| s.text.split_whitespace().count()).sum();
+                                *m.spoken.entry(code).or_insert(0) += words as u32;
+                            }
                             m.transcript.extend(segments);
                             m.transcript.sort_by_key(|s| s.start_ms);
                         }
@@ -1592,6 +1601,7 @@ impl App {
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
+            .fade_in(false)
             .default_width(460.0)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .frame(Frame::new().fill(BG).stroke(Stroke::new(1.0, BORDER)).corner_radius(14).inner_margin(20).shadow(ctx.global_style().visuals.window_shadow))
@@ -1606,6 +1616,13 @@ impl App {
                     });
                 });
                 ui.add_space(10.0);
+                // Scroll only when the Silvery window is too short to show all settings.
+                let max_h = (ctx.content_rect().height() - 140.0).max(160.0);
+                egui::ScrollArea::vertical()
+                    .max_height(max_h)
+                    .min_scrolled_height(max_h)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
                 ui.label(RichText::new(format!("AI model (Ollama on {})", crate::platform::THIS)).strong().color(TEXT));
                 ui.add_space(2.0);
                 match &self.ollama {
@@ -1651,6 +1668,30 @@ impl App {
                         }
                     }
                 });
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Language of AI notes").color(MUTED));
+                    let mut nl = self.settings.notes_language.clone();
+                    let shown = if nl == "auto" { "Same as the meeting".to_string() } else { lang_name(&nl).to_string() };
+                    egui::ComboBox::from_id_salt("notes_lang").selected_text(shown).width(220.0).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut nl, "auto".to_string(), "Same as the meeting");
+                        for (code, name) in LANGS.iter().filter(|(c, _)| *c != "auto") {
+                            ui.selectable_value(&mut nl, code.to_string(), *name);
+                        }
+                    });
+                    if nl != self.settings.notes_language {
+                        self.settings.notes_language = nl;
+                        changed = true;
+                    }
+                });
+                ui.label(
+                    RichText::new("Summaries and Ask answers are written in this language. For example, a Vietnamese meeting can get English notes.")
+                        .size(12.0)
+                        .color(MUTED),
+                );
 
                 ui.add_space(12.0);
                 ui.separator();
@@ -1715,20 +1756,39 @@ impl App {
                     self.settings.whisper_model = wm;
                     changed = true;
                 }
-                if !self.settings.whisper_model.ends_with(".en") {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Language").color(MUTED));
-                        let mut lang = self.settings.language.clone();
-                        egui::ComboBox::from_id_salt("lang").selected_text(lang_name(&lang)).show_ui(ui, |ui| {
-                            for (code, name) in LANGS {
-                                ui.selectable_value(&mut lang, code.to_string(), *name);
-                            }
-                        });
-                        if lang != self.settings.language {
-                            self.settings.language = lang;
-                            changed = true;
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Spoken language").color(MUTED));
+                    let mut lang = self.settings.language.clone();
+                    egui::ComboBox::from_id_salt("lang").selected_text(lang_name(&lang)).width(220.0).show_ui(ui, |ui| {
+                        for (code, name) in LANGS {
+                            ui.selectable_value(&mut lang, code.to_string(), *name);
                         }
                     });
+                    if lang != self.settings.language {
+                        // English-only models can't understand other languages: switch to the best
+                        // multilingual model (downloaded once).
+                        if lang != "en" && lang != "auto" && transcribe::is_english_only(&self.settings.whisper_model) && self.downloading.is_none() {
+                            self.settings.whisper_model = transcribe::MULTILINGUAL_BEST.to_string();
+                            if !self.whisper_path().exists() {
+                                download = true;
+                            }
+                        }
+                        self.settings.language = lang;
+                        changed = true;
+                    }
+                });
+                if transcribe::is_english_only(&self.settings.whisper_model) {
+                    ui.label(
+                        RichText::new("This model understands English only. For other languages, choose an \"Any language\" model above.")
+                            .size(12.0)
+                            .color(MUTED),
+                    );
+                } else if self.settings.language == "auto" {
+                    ui.label(
+                        RichText::new("Tip: choosing the language (instead of detecting it) is more reliable for short or quiet recordings.")
+                            .size(12.0)
+                            .color(MUTED),
+                    );
                 }
                 let have = self.whisper_path().exists();
                 ui.horizontal(|ui| {
@@ -1756,6 +1816,7 @@ impl App {
                 if ui.button("Show my meeting files").clicked() {
                     crate::platform::open_path(&self.store.root);
                 }
+                });
             });
         if changed {
             self.store.save_settings(&self.settings);
@@ -1879,20 +1940,29 @@ impl App {
     }
 }
 
+/// Spoken languages (Whisper language codes). "auto" lets the speech engine detect it.
 const LANGS: &[(&str, &str)] = &[
     ("auto", "Detect automatically"),
     ("en", "English"),
+    ("vi", "Vietnamese (Tiếng Việt)"),
     ("zh", "Chinese"),
     ("ms", "Malay"),
-    ("ta", "Tamil"),
     ("id", "Indonesian"),
+    ("th", "Thai"),
+    ("tl", "Filipino (Tagalog)"),
+    ("ta", "Tamil"),
+    ("hi", "Hindi"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
     ("es", "Spanish"),
     ("fr", "French"),
     ("de", "German"),
-    ("ja", "Japanese"),
-    ("ko", "Korean"),
-    ("hi", "Hindi"),
+    ("pt", "Portuguese"),
+    ("it", "Italian"),
+    ("ru", "Russian"),
+    ("ar", "Arabic"),
 ];
+
 
 fn lang_name(code: &str) -> &'static str {
     LANGS.iter().find(|(c, _)| *c == code).map(|(_, n)| *n).unwrap_or("Detect automatically")

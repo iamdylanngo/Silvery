@@ -56,8 +56,19 @@ press **Run workflow**. The tag is created for you.
 
 - **Windows arm64** is marked *experimental*. If it fails, the release still goes out with the other five
   files. Open that job's log to see why. It needs Clang and LLVM for ARM, which the workflow installs.
-- If any other job fails, **Publish** still runs and posts whatever was built. Fix the problem, then run
-  **Release** again with the same tag. The files are updated in place.
+- If any other build fails, nothing is published, and the previous release stays the latest, so the README
+  download links keep working. The first job, **Check the project**, catches mistakes in `Cargo.toml` (such as an
+  invalid `edition`) within a minute.
+
+### Fixing a release that failed (for example v1.0.5)
+A tag always points at the commit it was made on. So if the code was broken when you tagged, pushing a fix
+doesn't rebuild that release. Either:
+- **Run it again from the fixed code:** Actions › **Release** › **Run workflow** (branch `main`), and enter
+  the same tag, e.g. `v1.0.5`. It builds the current `main` and fills that release with the downloads.
+- **Or make a new version:** `git tag v1.0.6 && git push origin v1.0.6`.
+
+If a release on GitHub ended up with no files (and is marked **Latest**), the README's download links
+return "not found" until one of the above has run. You can also delete the empty release on the Releases page.
 
 ## Making a release by hand
 

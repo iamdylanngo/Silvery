@@ -36,6 +36,9 @@ pub struct Meeting {
     pub chat: Vec<ChatMsg>,
     #[serde(default)]
     pub recordings: Vec<String>,
+    /// Words transcribed per spoken language (e.g. {"vi": 120, "en": 8}).
+    #[serde(default)]
+    pub spoken: std::collections::BTreeMap<String, u32>,
 }
 
 pub const UNTITLED: &str = "Untitled meeting";
@@ -54,7 +57,13 @@ impl Meeting {
             template: 0,
             chat: Vec::new(),
             recordings: Vec::new(),
+            spoken: Default::default(),
         }
+    }
+
+    /// The language spoken most in this meeting (a code like "vi"), if known.
+    pub fn main_language(&self) -> Option<&str> {
+        self.spoken.iter().max_by_key(|(_, n)| **n).map(|(c, _)| c.as_str())
     }
 
     pub fn transcript_text(&self) -> String {
@@ -113,6 +122,13 @@ pub struct Settings {
     /// Chosen microphone; empty = system default.
     #[serde(default)]
     pub mic: String,
+    /// Language the AI writes summaries and answers in ("auto" = same as the meeting).
+    #[serde(default = "auto_lang")]
+    pub notes_language: String,
+}
+
+fn auto_lang() -> String {
+    "auto".into()
 }
 
 impl Default for Settings {
@@ -125,6 +141,7 @@ impl Default for Settings {
             default_template: 0,
             seen_sample: false,
             mic: String::new(),
+            notes_language: auto_lang(),
         }
     }
 }

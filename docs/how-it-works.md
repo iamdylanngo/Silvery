@@ -104,6 +104,14 @@ silently hands over silence. Packaging as `Silvery.app` with `NSMicrophoneUsageD
 Silvery responsible for itself, so macOS shows its own "allow microphone" prompt. Ad-hoc signatures
 change with every build, so macOS may ask again after an update.
 
+## Fonts
+
+`theme::install_fonts` puts **Inter** (`assets/fonts/Inter-Regular.ttf`, SIL Open Font License 1.1) first.
+It covers English, Vietnamese and other Latin, Greek and Cyrillic languages. eframe's `system_fonts`
+feature fills in any character Inter lacks (Chinese, Japanese, Korean, Thai, Arabic, Hindi…) from the
+computer's own fonts: PingFang/Hiragino on macOS, Microsoft YaHei on Windows, Noto via fontconfig on Linux.
+They're loaded on demand, so the app stays small.
+
 ## Logo
 
 `assets/logo.svg` is the source. `logo-1024.png`, `logo-256.png`, `logo-64.png`, `logo-tile-128.png`

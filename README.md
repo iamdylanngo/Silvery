@@ -50,7 +50,8 @@ Click the download for your computer. The links always fetch the **newest versio
 On Windows: Settings › System › About › *System type* ("ARM-based processor" means ARM).
 On Linux: `uname -m` prints `x86_64` or `aarch64` (= ARM).
 
-What's new in each version, and older versions: [Releases page](../../releases/latest).
+What's new in each version, and older versions: [Releases page](../../releases). If a download link
+above doesn't work, open the [Releases page](../../releases) and pick your file under **Assets**.
 Install steps for each system are in the [user guide](docs/user-guide.md#installing-silvery).
 **Mac, first time only:** if macOS says *"Apple could not verify Silvery.app…"*, press **Done**, then
 **System Settings › Privacy & Security › Open Anyway**. Silvery isn't signed with an Apple developer
@@ -100,8 +101,11 @@ requirements: **[build guide](docs/building.md)**.
 [Rust](https://www.rust-lang.org) · [egui / eframe](https://github.com/emilk/egui) (window and UI) ·
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) via [whisper-rs](https://github.com/tazz4843/whisper-rs)
 (speech-to-text) · [cpal](https://github.com/RustAudio/cpal) (microphone) ·
-[Ollama](https://ollama.com) (local AI) · [ureq](https://github.com/algesten/ureq) (talking to Ollama)
+[Ollama](https://ollama.com) (local AI) · [ureq](https://github.com/algesten/ureq) (talking to Ollama) ·
+[Inter](https://rsms.me/inter/) font (Vietnamese and other Latin languages; Chinese, Japanese, Korean,
+Thai and other scripts use the computer's own fonts)
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Whisper models and the libraries above have their own licenses.
+MIT. See [LICENSE](LICENSE). Whisper models and the libraries above have their own licenses. The Inter font
+is under the SIL Open Font License 1.1 ([assets/fonts/Inter-LICENSE.txt](assets/fonts/Inter-LICENSE.txt)).

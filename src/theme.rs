@@ -17,7 +17,30 @@ pub const GREEN: Color32 = Color32::from_rgb(0x2F, 0xA8, 0x5A);
 pub const AMBER: Color32 = Color32::from_rgb(0xE0, 0x9B, 0x1A);
 pub const CODE_BG: Color32 = Color32::from_rgb(0xF0, 0xF1, 0xF5);
 
+/// Fonts: Inter (open source, SIL Open Font License; see assets/fonts/Inter-LICENSE.txt) covers
+/// English, Vietnamese and other Latin, Greek and Cyrillic languages. Characters it lacks
+/// (Chinese, Japanese, Korean, Thai, Arabic…) come from the computer's own fonts through eframe's
+/// system-font fallback.
+fn install_fonts(ctx: &egui::Context) {
+    use egui::{FontData, FontDefinitions, FontFamily};
+    use std::sync::Arc;
+    let mut fonts = FontDefinitions::default();
+    fonts.font_data.insert(
+        "inter".to_owned(),
+        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/Inter-Regular.ttf"))),
+    );
+    if let Some(list) = fonts.families.get_mut(&FontFamily::Proportional) {
+        list.insert(0, "inter".to_owned());
+    }
+    if let Some(list) = fonts.families.get_mut(&FontFamily::Monospace) {
+        // Timestamps stay in the monospace font; any Vietnamese text in it falls back to Inter.
+        list.insert(1.min(list.len()), "inter".to_owned());
+    }
+    ctx.set_fonts(fonts);
+}
+
 pub fn apply(ctx: &egui::Context) {
+    install_fonts(ctx);
     let mut v = Visuals::light();
     v.panel_fill = BG;
     v.window_fill = BG;

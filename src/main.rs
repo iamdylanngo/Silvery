@@ -144,7 +144,16 @@ fn main() -> eframe::Result<()> {
 /// `--self-test [speech.wav]`.
 fn self_test(args: &[String]) {
     let store = model::Store::new(false);
-    let settings = store.load_settings();
+    let mut settings = store.load_settings();
+    // For checks: SILVERY_WHISPER_MODEL, SILVERY_LANGUAGE (e.g. vi) and SILVERY_NOTES_LANGUAGE
+    // (a code, e.g. vi) override the saved settings without changing them.
+    if let Ok(v) = std::env::var("SILVERY_WHISPER_MODEL") {
+        settings.whisper_model = v;
+    }
+    if let Ok(v) = std::env::var("SILVERY_LANGUAGE") {
+        settings.language = v;
+    }
+    let notes_language = std::env::var("SILVERY_NOTES_LANGUAGE").ok();
     println!("Ollama at {}", settings.ollama_url);
     match llm::list_models(&settings.ollama_url) {
         Ok(models) => {
@@ -157,8 +166,19 @@ fn self_test(args: &[String]) {
             println!("--- summary with {model} ---");
             let mut m = model::sample_meeting();
             m.summary.clear();
+            // SILVERY_SAMPLE_TEXT replaces the example transcript (e.g. to test another language).
+            // SILVERY_SAMPLE_SPOKEN says which language it is (as the speech engine would detect it).
+            if let Ok(text) = std::env::var("SILVERY_SAMPLE_TEXT") {
+                m.notes.clear();
+                m.transcript = vec![model::Segment { start_ms: 0, end_ms: 10_000, text }];
+                if let Ok(code) = std::env::var("SILVERY_SAMPLE_SPOKEN") {
+                    m.spoken.insert(code, 30);
+                }
+            }
+            let notes_lang = llm::notes_language_for(notes_language.as_deref().unwrap_or("auto"), &m);
+            println!("notes language: {}", notes_lang.as_deref().unwrap_or("same as the meeting (English)"));
             let t0 = std::time::Instant::now();
-            let r = llm::chat_stream(&settings.ollama_url, &model, &llm::summary_messages(&m, 0), |d| {
+            let r = llm::chat_stream(&settings.ollama_url, &model, &llm::summary_messages(&m, 0, notes_lang.as_deref()), |d| {
                 print!("{d}");
                 use std::io::Write;
                 let _ = std::io::stdout().flush();
@@ -198,10 +218,11 @@ fn self_test(args: &[String]) {
         while let Ok(msg) = rx.recv() {
             if let app::Msg::Transcribe(out) = msg {
                 match out {
-                    transcribe::Out::Segments { segments, .. } => {
+                    transcribe::Out::Segments { segments, lang, .. } => {
                         for s in segments {
                             println!("[{}] {}", model::fmt_clock(s.start_ms), s.text);
                         }
+                        println!("spoken language: {}", lang.as_deref().unwrap_or("unknown"));
                         println!("transcribed in {:.1}s", t0.elapsed().as_secs_f32());
                         break;
                     }

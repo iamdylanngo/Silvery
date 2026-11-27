@@ -21,8 +21,24 @@ permissions:
   contents: write
 
 jobs:
+  # Fails within a minute, with a clear message, if Cargo.toml or the code has a mistake,
+  # instead of six long builds failing one by one.
+  check:
+    name: Check the project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Read Cargo.toml
+        run: |
+          cargo metadata --no-deps --format-version 1 > /dev/null || {
+            echo "::error file=Cargo.toml::Cargo.toml has a mistake (see above), so nothing can be built. For example 'edition' must be 2021 or 2024."
+            exit 1
+          }
+
   build:
     name: ${{ matrix.name }}
+    needs: check
     strategy:
       fail-fast: false
       matrix:
@@ -152,11 +168,25 @@ jobs:
         with:
           path: downloads
           merge-multiple: true
-      - name: Checksums
+      - name: Check that the main downloads were all built
+        # Without this, a failed build could publish an empty release and mark it "Latest",
+        # which breaks every "latest" download link in the README.
         run: |
           cd downloads
           ls -la
-          test -n "$(ls)" || { echo "Nothing was built."; exit 1; }
+          missing=""
+          for f in Silvery-macOS-AppleSilicon.zip Silvery-macOS-Intel.zip Silvery-Windows-x64.zip \
+                   Silvery-Linux-x86_64.tar.gz Silvery-Linux-arm64.tar.gz; do
+            [ -f "$f" ] || missing="$missing $f"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Not published, because these downloads failed to build:$missing. The previous release stays the latest. Open the failed build job above to see why, fix it, then run Release again with the same tag."
+            exit 1
+          fi
+          [ -f Silvery-Windows-arm64.zip ] || echo "::warning::Windows ARM didn't build (experimental); publishing without it."
+      - name: Checksums
+        run: |
+          cd downloads
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Remove old files from this release (for example from an earlier run of the same tag)
@@ -208,3 +238,18 @@ jobs:
 
             ---
           files: downloads/*
+
+      - name: Check the README download links work
+        run: |
+          sleep 10
+          bad=""
+          for f in Silvery-macOS-AppleSilicon.zip Silvery-macOS-Intel.zip Silvery-Windows-x64.zip \
+                   Silvery-Linux-x86_64.tar.gz Silvery-Linux-arm64.tar.gz; do
+            url="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/$f"
+            code=$(curl -sL -o /dev/null -w '%{http_code}' -r 0-0 "$url")
+            echo "$code  $url"
+            [ "$code" = 200 ] || [ "$code" = 206 ] || bad="$bad $f"
+          done
+          if [ -n "$bad" ]; then
+            echo "::warning::These 'latest' download links don't work yet:$bad (a private repository, or a newer release without them)."
+          fi
